@@ -1,0 +1,180 @@
+// Prisma Schema pour AEROX CRASH
+// Base de données PostgreSQL pour production et développement
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  SUPPORT
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum GameStatus {
+  WAITING
+  BETTING
+  RUNNING
+  CRASHED
+  RESULT
+}
+
+enum BetStatus {
+  PENDING
+  ACTIVE
+  CASHED_OUT
+  LOST
+  REFUNDED
+}
+
+enum TransactionType {
+  DEPOSIT
+  BET
+  CASHOUT
+  WIN
+  REFUND
+  WITHDRAWAL
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id           String      @id @default(uuid())
+  username     String      @unique
+  email        String      @unique
+  passwordHash String
+  role         Role        @default(USER)
+  currency            String      @default("EUR")
+  isEmailVerified     Boolean     @default(false)
+  verificationCode    String?
+  verificationToken   String?
+  verificationExpires DateTime?
+  isSuspended         Boolean     @default(false)
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  wallet       Wallet?
+  bets         Bet[]
+  limits       UserLimit?
+  auditLogs    AuditLog[]  @relation("AdminAudit")
+
+  @@index([username])
+  @@index([email])
+  @@index([verificationToken])
+}
+
+model Wallet {
+  id            String        @id @default(uuid())
+  userId        String        @unique
+  balance       Float         @default(1000.0) // Solde disponible de départ (démo/réel)
+  lockedBalance Float         @default(0.0)    // Fonds réservés pour paris en cours
+  currency      String        @default("EUR")
+  version       Int           @default(1)      // Verrou optimiste
+  updatedAt     DateTime      @updatedAt
+
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions  Transaction[]
+
+  @@index([userId])
+}
+
+model Transaction {
+  id             String            @id @default(uuid())
+  idempotencyKey String            @unique
+  walletId       String
+  amount         Float
+  type           TransactionType
+  status         TransactionStatus @default(COMPLETED)
+  balanceAfter   Float
+  referenceId    String?           // Id du pari ou identifiant externe
+  metadata       String?           // JSON optionnel pour détails
+  createdAt      DateTime          @default(now())
+
+  wallet         Wallet            @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@index([idempotencyKey])
+  @@index([type])
+}
+
+model Game {
+  id             String     @id @default(uuid())
+  roundNumber    Int        @unique @default(autoincrement())
+  serverSeed     String     // Révélé publiquement à l'état CRASHED
+  serverSeedHash String     // SHA-256 publié avant le début de la manche
+  clientSeed     String     @default("aerox-global-seed-v1")
+  nonce          Int        @default(0)
+  crashPoint     Float      // Multiplicateur déterminé de manière Provably Fair
+  status         GameStatus @default(WAITING)
+  startedAt      DateTime?
+  crashedAt      DateTime?
+  createdAt      DateTime   @default(now())
+
+  bets           Bet[]
+
+  @@index([roundNumber])
+  @@index([status])
+}
+
+model Bet {
+  id                String    @id @default(uuid())
+  userId            String
+  gameId            String
+  panelIndex        Int       @default(1) // 1 ou 2 pour double pari
+  amount            Float
+  autoCashout       Float?    // Seuil de cash-out automatique (ex: 2.00x)
+  cashoutMultiplier Float?    // Multiplicateur exact lors du cash-out
+  profit            Float?    // Gain net ou brut
+  status            BetStatus @default(PENDING)
+  createdAt         DateTime  @default(now())
+  cashedOutAt       DateTime?
+
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  game              Game      @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([gameId])
+  @@index([status])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  adminId    String
+  action     String   // Ex: USER_SUSPENDED, BALANCE_ADJUSTED, LIMIT_UPDATED
+  targetType String   // Ex: USER, GAME, SYSTEM
+  targetId   String?
+  details    String?  // JSON stringifié
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  admin      User     @relation("AdminAudit", fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model UserLimit {
+  id                  String    @id @default(uuid())
+  userId              String    @unique
+  dailyDepositLimit   Float?    @default(500.0)
+  maxBetLimit         Float?    @default(100.0)
+  sessionLossLimit    Float?    @default(200.0)
+  selfExclusionUntil  DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}

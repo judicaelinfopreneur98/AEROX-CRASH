@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  # Base de données relationnelle PostgreSQL
+  postgres:
+    image: postgres:16-alpine
+    container_name: aerox_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: aerox_user
+      POSTGRES_PASSWORD: aerox_secure_pass_2026
+      POSTGRES_DB: aerox_crash
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aerox_user -d aerox_crash"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Application Web & Serveur Temps Réel
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aerox_app
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://aerox_user:aerox_secure_pass_2026@postgres:5432/aerox_crash?schema=public"
+      JWT_SECRET: "aerox-quantum-jwt-production-secret-must-be-secure-32-chars"
+      PORT: 3000
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:
+    driver: local
