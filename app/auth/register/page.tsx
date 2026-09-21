@@ -45,15 +45,15 @@ export default function RegisterPage() {
     <div className="min-h-screen bg-[#080B10] text-gray-100 flex flex-col">
       <Navbar />
 
-      <div className="flex-1 flex items-center justify-center p-4">
-        <div className="bg-[#0E131F] border border-border w-full max-w-md rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
-          <div className="text-center space-y-2">
+      <div className="flex-1 flex items-center justify-center p-3 sm:p-4">
+        <div className="bg-[#0E131F] border border-border w-full max-w-md rounded-2xl p-4 sm:p-8 shadow-2xl space-y-4 sm:space-y-6">
+          <div className="text-center space-y-1.5 sm:space-y-2">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono font-bold">
               <Sparkles className="w-3.5 h-3.5" />
               {bonusDisplay}
             </div>
-            <h1 className="text-2xl font-black text-white">Inscription Pilote</h1>
-            <p className="text-xs text-gray-400">Rejoignez l'arène temps réel AEROX CRASH</p>
+            <h1 className="text-xl sm:text-2xl font-black text-white">Inscription Pilote</h1>
+            <p className="text-[11px] sm:text-xs text-gray-400">Rejoignez l'arène temps réel AEROX CRASH</p>
           </div>
 
           {error && (
@@ -63,31 +63,31 @@ export default function RegisterPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-3.5 sm:space-y-4">
             {/* CHOIX DE DEVISE */}
             <div>
               <label className="text-xs font-semibold text-gray-300 uppercase block mb-1.5 font-mono flex items-center gap-1.5">
                 <Coins className="w-3.5 h-3.5 text-primary" />
                 Devise de votre Compte
               </label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 gap-1.5 sm:gap-2">
                 {[
                   { id: 'FCFA', label: 'FCFA', sub: 'Afrique' },
                   { id: 'EUR', label: 'EUR (€)', sub: 'Europe' },
-                  { id: 'USD', label: 'USD ($)', sub: 'International' },
+                  { id: 'USD', label: 'USD ($)', sub: 'Monde' },
                 ].map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => setCurrency(item.id as any)}
-                    className={`p-2.5 rounded-xl border text-center transition flex flex-col items-center justify-center ${
+                    className={`p-2 sm:p-2.5 rounded-xl border text-center transition flex flex-col items-center justify-center min-h-[46px] ${
                       currency === item.id
                         ? 'bg-primary/15 border-primary text-white shadow-sm shadow-primary/20'
                         : 'bg-card border-border text-gray-400 hover:text-white hover:border-gray-700'
                     }`}
                   >
                     <span className="text-xs font-bold font-mono">{item.label}</span>
-                    <span className="text-[10px] text-gray-500">{item.sub}</span>
+                    <span className="text-[9px] sm:text-[10px] text-gray-500">{item.sub}</span>
                   </button>
                 ))}
               </div>
@@ -105,7 +105,7 @@ export default function RegisterPage() {
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="ex: AeroAce"
-                  className="w-full bg-card border border-border focus:border-primary rounded-xl pl-10 pr-4 py-2.5 text-white text-sm focus:outline-none transition"
+                  className="w-full bg-card border border-border focus:border-primary rounded-xl pl-10 pr-4 py-2.5 sm:py-3 text-white text-sm focus:outline-none transition"
                 />
               </div>
             </div>
@@ -122,7 +122,7 @@ export default function RegisterPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="pilote@aerox.io"
-                  className="w-full bg-card border border-border focus:border-primary rounded-xl pl-10 pr-4 py-2.5 text-white text-sm focus:outline-none transition"
+                  className="w-full bg-card border border-border focus:border-primary rounded-xl pl-10 pr-4 py-2.5 sm:py-3 text-white text-sm focus:outline-none transition"
                 />
               </div>
             </div>
@@ -139,7 +139,7 @@ export default function RegisterPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full bg-card border border-border focus:border-primary rounded-xl pl-10 pr-4 py-2.5 text-white text-sm focus:outline-none transition"
+                  className="w-full bg-card border border-border focus:border-primary rounded-xl pl-10 pr-4 py-2.5 sm:py-3 text-white text-sm focus:outline-none transition"
                 />
               </div>
             </div>
@@ -147,7 +147,7 @@ export default function RegisterPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full mt-2 py-3 rounded-xl bg-primary text-black font-black text-sm uppercase tracking-wider hover:bg-primary-hover active:scale-98 transition shadow-lg shadow-primary/20 disabled:opacity-50 flex items-center justify-center gap-2"
+              className="w-full min-h-[48px] mt-2 py-3 rounded-xl bg-primary text-black font-black text-sm uppercase tracking-wider hover:bg-primary-hover active:scale-98 transition shadow-lg shadow-primary/20 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
             >
               {loading ? (
                 <div className="w-5 h-5 rounded-full border-2 border-black/30 border-t-black animate-spin" />

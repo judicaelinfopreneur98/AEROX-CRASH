@@ -72,30 +72,31 @@ export function DepositModal({ onClose }: DepositModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-[#0E131F] border border-border w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="bg-[#0E131F] border border-border w-full max-w-md max-h-[92vh] sm:max-h-[85vh] rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200">
         
         {/* HEADER */}
-        <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-surface/50">
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-b border-border flex items-center justify-between bg-surface/50 shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/30 flex items-center justify-center">
+            <div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/30 flex items-center justify-center shrink-0">
               <CreditCard className="w-4 h-4 text-primary" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white">Recharger le Portefeuille</h3>
-              <p className="text-xs text-gray-400">Passerelle sécurisée ({currency})</p>
+              <h3 className="text-sm sm:text-base font-bold text-white">Recharger le Portefeuille</h3>
+              <p className="text-[11px] sm:text-xs text-gray-400">Passerelle sécurisée ({currency})</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-card transition"
+            className="p-2 min-w-[36px] min-h-[36px] rounded-lg text-gray-400 hover:text-white hover:bg-card transition flex items-center justify-center"
+            aria-label="Fermer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* CONTENT */}
-        <div className="p-6 space-y-4">
+        {/* CONTENT (Scrollable for Virtual Keyboards) */}
+        <div className="p-4 sm:p-6 space-y-3.5 sm:space-y-4 overflow-y-auto">
           
           {/* AVERTISSEMENT EMAIL NON VÉRIFIÉ */}
           {!isEmailVerified && (
@@ -110,7 +111,7 @@ export function DepositModal({ onClose }: DepositModalProps) {
               <Link
                 href={`/auth/verify-email?email=${encodeURIComponent(user?.email || '')}`}
                 onClick={onClose}
-                className="self-start px-3 py-1 rounded-lg bg-yellow-400 text-black font-bold text-xs hover:bg-yellow-300 transition"
+                className="self-start px-3 py-1.5 rounded-lg bg-yellow-400 text-black font-bold text-xs hover:bg-yellow-300 transition"
               >
                 Vérifier mon email →
               </Link>
@@ -121,7 +122,7 @@ export function DepositModal({ onClose }: DepositModalProps) {
           <div className="p-3 rounded-xl bg-card border border-border flex items-start gap-2.5 text-xs text-gray-300">
             <ShieldCheck className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
             <p>
-              Couche de paiement (<span className="text-emerald-400 font-semibold">Mode Sandbox Sandbox</span>). Crédit immédiat pour tester l’écosystème.
+              Passerelle de paiement sécurisée (<span className="text-emerald-400 font-semibold">Mode Sandbox Immédiat</span>). Crédit instantané sur votre solde.
             </p>
           </div>
 
@@ -144,19 +145,19 @@ export function DepositModal({ onClose }: DepositModalProps) {
             <label className="text-xs font-semibold text-gray-300 uppercase block mb-2 font-mono">
               Montant à déposer ({currency})
             </label>
-            <div className="grid grid-cols-5 gap-2 mb-3">
+            <div className="grid grid-cols-3 xs:grid-cols-5 gap-1.5 sm:gap-2 mb-3">
               {presets.map((p) => (
                 <button
                   key={p}
                   type="button"
                   onClick={() => setAmount(p)}
-                  className={`py-2 rounded-xl text-xs font-mono font-bold border transition ${
+                  className={`py-2 px-1 rounded-xl text-xs font-mono font-bold border transition text-center min-h-[38px] ${
                     amount === p
                       ? 'bg-primary text-black border-primary'
                       : 'bg-card border-border text-gray-300 hover:border-gray-500'
                   }`}
                 >
-                  {isFcfa ? (p >= 1000 ? `${p / 1000}k F` : `${p} F`) : `${p} ${currency === 'USD' ? '$' : '€'}`}
+                  {isFcfa ? (p >= 1000 ? `${p / 1000}k` : `${p}`) : `${p} ${currency === 'USD' ? '$' : '€'}`}
                 </button>
               ))}
             </div>
@@ -173,16 +174,16 @@ export function DepositModal({ onClose }: DepositModalProps) {
                 value={amount}
                 onChange={(e) => setAmount(Math.max(isFcfa ? 500 : 5, parseFloat(e.target.value) || 0))}
                 disabled={!isEmailVerified}
-                className="w-full bg-card border border-border focus:border-primary rounded-xl pl-12 pr-4 py-2.5 text-white font-mono font-bold text-lg focus:outline-none transition disabled:opacity-50"
+                className="w-full bg-card border border-border focus:border-primary rounded-xl pl-12 pr-4 py-2.5 sm:py-3 text-white font-mono font-bold text-base sm:text-lg focus:outline-none transition disabled:opacity-50"
               />
             </div>
           </div>
 
-          {/* BOUTON CONFIRMATION */}
+          {/* BOUTON CONFIRMATION TACTILE */}
           <button
             onClick={handleDeposit}
             disabled={isLoading || !isEmailVerified}
-            className="w-full mt-2 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-black text-sm uppercase tracking-wider hover:brightness-110 active:scale-98 transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 disabled:opacity-40"
+            className="w-full min-h-[48px] py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-black font-black text-sm uppercase tracking-wider hover:brightness-110 active:scale-98 transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 disabled:opacity-40"
           >
             {isLoading ? (
               <div className="w-5 h-5 rounded-full border-2 border-black/30 border-t-black animate-spin" />

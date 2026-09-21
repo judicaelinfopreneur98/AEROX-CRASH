@@ -203,10 +203,6 @@ export default function AdminDashboardPage() {
     }
   };
 
-  const handleSwitchToDemoPlayer = async () => {
-    await login('demo@aerox.io', 'Demo123!');
-    router.push('/');
-  };
 
   const handleAdjustBalance = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -297,12 +293,12 @@ export default function AdminDashboardPage() {
               </p>
             </div>
 
-            {/* ALERTE CONTEXTUELLE SI CONNECTÉ EN TANT QUE JOUEUR DÉMO */}
+            {/* ALERTE CONTEXTUELLE SI CONNECTÉ EN TANT QUE JOUEUR STANDARD */}
             {user && (
               <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 space-y-1">
                 <div className="flex items-center gap-2 text-rose-300 text-xs font-bold">
                   <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
-                  <span>Session Joueur Détectée ({user.username})</span>
+                  <span>Session Joueur Standard ({user.username})</span>
                 </div>
                 <p className="text-[11px] text-gray-300 leading-relaxed pl-6">
                   Vous êtes actuellement connecté avec le compte joueur standard <strong className="text-white">{user.username}</strong> (<code className="text-gray-400">{user.email}</code>). Ce compte n'a pas accès aux outils d'administration ni au multiplicateur secret.
@@ -426,14 +422,12 @@ export default function AdminDashboardPage() {
           </div>
 
           <div className="flex items-center gap-2 w-full sm:w-auto">
-            <button
-              onClick={handleSwitchToDemoPlayer}
-              className="flex-1 sm:flex-initial px-3 py-2 rounded-xl bg-surface hover:bg-card border border-border text-xs text-gray-300 hover:text-white flex items-center justify-center gap-2 transition cursor-pointer"
-              title="Déconnecter l'admin et basculer sur le joueur démo pour tester l'arène de jeu"
+            <Link
+              href="/"
+              className="flex-1 sm:flex-initial px-3.5 py-2 rounded-xl bg-surface hover:bg-card border border-border text-xs text-gray-300 hover:text-white flex items-center justify-center gap-2 transition cursor-pointer"
             >
-              <Users className="w-3.5 h-3.5 text-primary" />
-              <span>Passer en Mode Joueur Démo</span>
-            </button>
+              <span>Arène de Jeu</span>
+            </Link>
             <button
               onClick={logout}
               className="p-2 rounded-xl bg-surface hover:bg-rose-500/20 border border-border hover:border-rose-500/40 text-gray-400 hover:text-rose-300 transition cursor-pointer"
@@ -445,21 +439,21 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* TITRE ET NAVIGATION ADMINISTRATION */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border pb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 border-b border-border pb-4 sm:pb-6">
           <div>
             <div className="flex items-center gap-2 text-yellow-400 text-xs font-mono font-bold uppercase mb-1">
               <ShieldAlert className="w-4 h-4" />
               Supervision Opérationnelle & Sécurité
             </div>
-            <h1 className="text-2xl sm:text-3xl font-black text-white">
+            <h1 className="text-xl sm:text-3xl font-black text-white">
               Tableau de Bord Administrateur
             </h1>
           </div>
 
-          <div className="flex items-center bg-surface p-1 rounded-xl border border-border gap-1 text-xs">
+          <div className="w-full sm:w-auto flex items-center bg-surface p-1 rounded-xl border border-border gap-1 text-xs overflow-x-auto no-scrollbar touch-pan-x">
             <button
               onClick={() => setTab('kpis')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition ${
+              className={`px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap ${
                 tab === 'kpis' ? 'bg-primary text-black' : 'text-gray-400 hover:text-white'
               }`}
             >
@@ -467,7 +461,7 @@ export default function AdminDashboardPage() {
             </button>
             <button
               onClick={() => setTab('users')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition ${
+              className={`px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap ${
                 tab === 'users' ? 'bg-primary text-black' : 'text-gray-400 hover:text-white'
               }`}
             >
@@ -475,7 +469,7 @@ export default function AdminDashboardPage() {
             </button>
             <button
               onClick={() => setTab('audit')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition ${
+              className={`px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap ${
                 tab === 'audit' ? 'bg-primary text-black' : 'text-gray-400 hover:text-white'
               }`}
             >
@@ -483,7 +477,7 @@ export default function AdminDashboardPage() {
             </button>
             <button
               onClick={() => setTab('system')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition ${
+              className={`px-3 py-1.5 rounded-lg font-bold transition whitespace-nowrap ${
                 tab === 'system' ? 'bg-primary text-black' : 'text-gray-400 hover:text-white'
               }`}
             >
@@ -491,7 +485,7 @@ export default function AdminDashboardPage() {
             </button>
             <button
               onClick={() => setTab('radar')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-lg font-bold transition flex items-center gap-1.5 whitespace-nowrap ${
                 tab === 'radar'
                   ? 'bg-amber-500 text-black shadow-lg shadow-amber-500/20'
                   : 'text-amber-400 hover:text-amber-300 hover:bg-amber-500/10'
@@ -873,7 +867,7 @@ export default function AdminDashboardPage() {
                         <Eye className="w-4 h-4 text-amber-400" />
                         Multiplicateur de Crash Scellé à l'Avance
                       </div>
-                      <div className="text-5xl sm:text-7xl font-black font-mono tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500 drop-shadow-[0_0_25px_rgba(245,158,11,0.4)]">
+                      <div className="text-4xl xs:text-5xl sm:text-7xl font-black font-mono tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-500 drop-shadow-[0_0_25px_rgba(245,158,11,0.4)] truncate">
                         {livePreview.crashPoint ? livePreview.crashPoint.toFixed(2) : '1.00'}x
                       </div>
                       <div className="text-[11px] text-gray-400 font-mono mt-1">

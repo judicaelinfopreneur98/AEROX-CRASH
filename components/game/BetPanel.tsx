@@ -16,6 +16,7 @@ import {
   XCircle,
   ArrowUpRight,
   TrendingDown,
+  LogIn,
 } from 'lucide-react';
 
 interface BetPanelProps {
@@ -23,7 +24,7 @@ interface BetPanelProps {
   status: GameState;
   currentMultiplier: number;
   myActiveBet: ActivePlayerBet | null;
-  onOpenAuth?: () => void;
+  onOpenAuth?: (mode: 'login' | 'register') => void;
 }
 
 export function BetPanel({
@@ -33,14 +34,13 @@ export function BetPanel({
   myActiveBet,
   onOpenAuth,
 }: BetPanelProps) {
-  const { user, balance, currency, isEmailVerified, login, refreshBalance, updateBalanceLocally } = useAuth();
+  const { user, balance, currency, isEmailVerified, refreshBalance, updateBalanceLocally } = useAuth();
 
   // Mode de gestion : 'manual' (Cash Out Manuel) ou 'auto' (Auto Cash-Out)
   const [betMode, setBetMode] = useState<'manual' | 'auto'>('manual');
 
   const isFcfa = currency === 'FCFA';
   const [amount, setAmount] = useState<number>(currency === 'FCFA' ? 100 : 10.0);
-  const [autoCashoutEnabled, setAutoCashoutEnabled] = useState<boolean>(false);
   const [autoCashoutValue, setAutoCashoutValue] = useState<number>(2.0);
   const [autoBetEnabled, setAutoBetEnabled] = useState<boolean>(false);
   const [isQueuedForNextRound, setIsQueuedForNextRound] = useState<boolean>(false);
@@ -64,7 +64,6 @@ export function BetPanel({
     if (myActiveBet) {
       setLocalBet(myActiveBet);
     } else if (status === 'WAITING' || status === 'RESULT') {
-      // Nouvelle manche : réinitialisation du pari local
       if (status === 'WAITING') {
         setLocalBet(null);
       }
@@ -79,7 +78,6 @@ export function BetPanel({
         status: 'LOST',
         profit: -localBet.amount,
       });
-      // Synchronisation du solde officiel avec le serveur
       refreshBalance();
     }
   }, [status, localBet, refreshBalance]);
@@ -94,10 +92,10 @@ export function BetPanel({
 
   // Auto-Bet
   useEffect(() => {
-    if (status === 'BETTING' && autoBetEnabled && !localBet && !isQueuedForNextRound) {
+    if (status === 'BETTING' && autoBetEnabled && !localBet && !isQueuedForNextRound && user) {
       handlePlaceBet();
     }
-  }, [status, autoBetEnabled, localBet]);
+  }, [status, autoBetEnabled, localBet, user]);
 
   const handleAmountChange = (val: number) => {
     const minVal = isFcfa ? 100 : 0.1;
@@ -123,19 +121,16 @@ export function BetPanel({
   // ACTION : PLACER UNE MISE (DÉFALCATION IMMÉDIATE DU SOLDE)
   // =========================================================================
   const handlePlaceBet = async () => {
-    let currentUser = user;
-
-    // Si non connecté, connexion démo automatique transparente
-    if (!currentUser) {
-      const authRes = await login('demo@aerox.io', 'Demo123!');
-      if (!authRes.success) {
-        if (onOpenAuth) onOpenAuth();
-        return;
+    // Si non connecté, inviter à se connecter ou s'inscrire (pas de compte démo)
+    if (!user) {
+      if (onOpenAuth) {
+        onOpenAuth('login');
       }
+      return;
     }
 
-    if (currentUser && !isEmailVerified) {
-      setErrorMessage('Action verrouillée : veuillez confirmer votre adresse email pour parier.');
+    if (!isEmailVerified) {
+      setErrorMessage('Action verrouillée : veuillez confirmer votre email pour parier.');
       return;
     }
 
@@ -153,19 +148,19 @@ export function BetPanel({
     setErrorMessage(null);
     soundManager.playBetPlaced();
 
-    // 1. DÉFALCATION IMMÉDIATE DU SOLDE : Le solde baisse instantanément à l'écran
+    // 1. DÉFALCATION IMMÉDIATE DU SOLDE
     const newBalance = Math.max(0, Number((balance - amount).toFixed(2)));
     updateBalanceLocally(newBalance);
 
     const tempBetId = `bet_${Date.now()}_${panelIndex}`;
-    const shouldUseAutoCo = betMode === 'auto' || autoCashoutEnabled;
+    const shouldUseAutoCo = betMode === 'auto';
     const autoCo = shouldUseAutoCo ? autoCashoutValue : null;
 
     // Création optimiste du pari local
     const optimisticBet: ActivePlayerBet = {
       betId: tempBetId,
-      userId: user?.id || 'usr_demo_001',
-      username: user?.username || 'PiloteDemo',
+      userId: user.id,
+      username: user.username,
       panelIndex,
       amount,
       autoCashout: autoCo,
@@ -178,7 +173,7 @@ export function BetPanel({
     // 2. Envoi via WebSocket
     socketClient.placeBet(amount, panelIndex, autoCo);
 
-    // 3. Appel de secours REST API pour garantie absolue
+    // 3. Appel REST API de secours
     const token = localStorage.getItem('aerox_jwt');
     if (token) {
       try {
@@ -205,7 +200,6 @@ export function BetPanel({
     }
   };
 
-  // Annuler la réservation en attente
   const handleCancelBet = () => {
     if (isQueuedForNextRound) {
       setIsQueuedForNextRound(false);
@@ -213,7 +207,7 @@ export function BetPanel({
   };
 
   // =========================================================================
-  // ACTION : BOUTON CASH OUT MANUEL (FONCTIONNEL, INSTANTANÉ ET GARANTI)
+  // ACTION : CASH OUT MANUEL INSTANTANÉ
   // =========================================================================
   const handleCashOut = async () => {
     if (!localBet || localBet.status !== 'ACTIVE') return;
@@ -224,7 +218,6 @@ export function BetPanel({
     const winAmount = Number((localBet.amount * mult).toFixed(2));
     const profitAmount = Number((winAmount - localBet.amount).toFixed(2));
 
-    // 1. Mise à jour immédiate optimiste de l'état du bouton
     const cashedBet: ActivePlayerBet = {
       ...localBet,
       status: 'CASHED_OUT',
@@ -233,14 +226,12 @@ export function BetPanel({
     };
     setLocalBet(cashedBet);
 
-    // 2. Crédit immédiat du solde utilisateur (Solde = solde actuel + gain total)
+    // Crédit immédiat du solde
     const updatedBalance = Number((balance + winAmount).toFixed(2));
     updateBalanceLocally(updatedBalance);
 
-    // 3. Envoi prioritaire WebSocket
     socketClient.cashOut(localBet.betId);
 
-    // 4. Appel de secours REST API
     const token = localStorage.getItem('aerox_jwt');
     if (token) {
       try {
@@ -254,7 +245,6 @@ export function BetPanel({
     }
   };
 
-  // Calcul du gain affiché en direct sur le bouton de Cash Out
   const liveWin = localBet && localBet.status === 'ACTIVE'
     ? Number((localBet.amount * currentMultiplier).toFixed(2))
     : Number((amount * currentMultiplier).toFixed(2));
@@ -264,10 +254,10 @@ export function BetPanel({
     : Number((liveWin - amount).toFixed(2));
 
   return (
-    <div className="bg-[#0E131F] border border-border/90 rounded-2xl p-4 sm:p-5 flex flex-col justify-between shadow-2xl relative overflow-hidden backdrop-blur-md">
+    <div className="bg-[#0E131F] border border-border/90 rounded-2xl p-3.5 sm:p-5 flex flex-col justify-between shadow-2xl relative overflow-hidden backdrop-blur-md">
       
       {/* 1. EN-TÊTE : ONGLETS MANUEL / AUTO & NOM DU PANNEAU */}
-      <div className="flex items-center justify-between pb-3 mb-3 border-b border-border/70">
+      <div className="flex items-center justify-between pb-2.5 mb-2.5 sm:pb-3 sm:mb-3 border-b border-border/70 gap-2">
         <div className="flex items-center gap-2">
           <div className={`w-2.5 h-2.5 rounded-full ${panelIndex === 1 ? 'bg-primary shadow-sm shadow-primary' : 'bg-accent shadow-sm shadow-accent'}`} />
           <span className="text-xs font-black font-mono tracking-wider text-white uppercase">
@@ -279,41 +269,41 @@ export function BetPanel({
           <button
             type="button"
             onClick={() => setBetMode('manual')}
-            className={`px-3 py-1 rounded-lg font-bold transition flex items-center gap-1.5 ${
+            className={`px-2.5 sm:px-3 py-1 rounded-lg font-bold transition flex items-center gap-1 ${
               betMode === 'manual'
                 ? 'bg-primary text-black shadow-sm'
                 : 'text-gray-400 hover:text-white'
             }`}
           >
             <HandCoins className="w-3.5 h-3.5" />
-            Manuel
+            <span>Manuel</span>
           </button>
           <button
             type="button"
             onClick={() => setBetMode('auto')}
-            className={`px-3 py-1 rounded-lg font-bold transition flex items-center gap-1.5 ${
+            className={`px-2.5 sm:px-3 py-1 rounded-lg font-bold transition flex items-center gap-1 ${
               betMode === 'auto'
                 ? 'bg-primary text-black shadow-sm'
                 : 'text-gray-400 hover:text-white'
             }`}
           >
             <Sliders className="w-3.5 h-3.5" />
-            Auto
+            <span>Auto</span>
           </button>
         </div>
       </div>
 
-      {/* 2. MODE AUTO (CONFIG) */}
+      {/* 2. CONFIGURATION MODE AUTO */}
       {betMode === 'auto' && (
-        <div className="mb-3 p-2.5 rounded-xl bg-card/60 border border-border/60 flex items-center justify-between text-xs animate-in fade-in">
+        <div className="mb-2.5 p-2.5 rounded-xl bg-card/60 border border-border/60 flex flex-wrap items-center justify-between gap-2 text-xs animate-in fade-in">
           <label className="flex items-center gap-1.5 text-gray-300 font-semibold cursor-pointer select-none">
             <input
               type="checkbox"
               checked={autoBetEnabled}
               onChange={(e) => setAutoBetEnabled(e.target.checked)}
-              className="w-3.5 h-3.5 accent-primary rounded cursor-pointer"
+              className="w-4 h-4 accent-primary rounded cursor-pointer"
             />
-            Auto Pari
+            <span>Auto Pari</span>
           </label>
 
           <div className="flex items-center gap-2">
@@ -342,9 +332,9 @@ export function BetPanel({
         </div>
       )}
 
-      {/* 4. MONTANT ET RACCOURCIS */}
+      {/* 4. MONTANT ET RACCOURCIS RESPONSIVE */}
       <div className="space-y-2">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           <div className="relative flex-1">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-xs font-mono">
               {isFcfa ? 'FCFA' : currency === 'USD' ? '$' : '€'}
@@ -357,42 +347,47 @@ export function BetPanel({
               value={amount}
               onChange={(e) => handleAmountChange(parseFloat(e.target.value) || 0)}
               disabled={!!localBet && localBet.status === 'ACTIVE'}
-              className="w-full bg-card border border-border focus:border-primary rounded-xl pl-12 pr-3 py-2.5 text-white font-mono font-bold text-base focus:outline-none transition"
+              className="w-full bg-card border border-border focus:border-primary rounded-xl pl-12 pr-3 py-2 sm:py-2.5 text-white font-mono font-bold text-base focus:outline-none transition"
             />
           </div>
 
           <div className="flex items-center gap-1">
             <button
+              type="button"
               onClick={handleHalf}
               disabled={!!localBet && localBet.status === 'ACTIVE'}
-              className="px-2.5 py-2.5 rounded-xl bg-card border border-border text-xs font-mono font-bold text-gray-300 hover:text-white hover:border-gray-500 disabled:opacity-40 transition"
+              className="px-3 min-h-[42px] rounded-xl bg-card border border-border text-xs font-mono font-bold text-gray-300 hover:text-white hover:border-gray-500 disabled:opacity-40 transition flex items-center justify-center"
             >
               ½
             </button>
             <button
+              type="button"
               onClick={handleDouble}
               disabled={!!localBet && localBet.status === 'ACTIVE'}
-              className="px-2.5 py-2.5 rounded-xl bg-card border border-border text-xs font-mono font-bold text-gray-300 hover:text-white hover:border-gray-500 disabled:opacity-40 transition"
+              className="px-3 min-h-[42px] rounded-xl bg-card border border-border text-xs font-mono font-bold text-gray-300 hover:text-white hover:border-gray-500 disabled:opacity-40 transition flex items-center justify-center"
             >
               2x
             </button>
             <button
+              type="button"
               onClick={handleMax}
               disabled={!!localBet && localBet.status === 'ACTIVE'}
-              className="px-2.5 py-2.5 rounded-xl bg-card border border-border text-xs font-mono font-bold text-gray-300 hover:text-white hover:border-gray-500 disabled:opacity-40 transition"
+              className="px-3 min-h-[42px] rounded-xl bg-card border border-border text-xs font-mono font-bold text-gray-300 hover:text-white hover:border-gray-500 disabled:opacity-40 transition flex items-center justify-center"
             >
               MAX
             </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-6 gap-1.5">
+        {/* Grille 3 colonnes sur mobile, 6 sur écran plus large pour lisibilité FCFA */}
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
           {quickAmounts.map((q) => (
             <button
               key={q}
+              type="button"
               onClick={() => handleAmountChange(q)}
               disabled={!!localBet && localBet.status === 'ACTIVE'}
-              className={`py-1.5 rounded-lg text-xs font-mono font-bold border transition ${
+              className={`py-1.5 px-1 rounded-lg text-xs font-mono font-bold border transition text-center min-h-[34px] flex items-center justify-center ${
                 amount === q
                   ? 'bg-primary/20 border-primary text-primary'
                   : 'bg-card/70 border-border/70 text-gray-400 hover:text-white hover:bg-card'
@@ -404,22 +399,22 @@ export function BetPanel({
         </div>
       </div>
 
-      {/* 5. ZONE DES BOUTONS D'ACTION : PARIER / CASH OUT MANUEL */}
-      <div className="mt-4">
+      {/* 5. ZONE DES BOUTONS D'ACTION (52px MINIMUM POUR CONFORT TACTILE) */}
+      <div className="mt-3 sm:mt-4">
         
-        {/* PARI ACTIF EN VOL : LE BOUTON GÉANT CASH OUT MANUEL */}
+        {/* PARI ACTIF EN VOL : BOUTON GÉANT CASH OUT MANUEL */}
         {localBet && localBet.status === 'ACTIVE' && status === 'RUNNING' ? (
           
           <button
             type="button"
             onClick={handleCashOut}
-            className="w-full py-4 px-4 rounded-2xl bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-500 text-black font-black uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow-2xl shadow-emerald-500/60 animate-pulse-fast flex flex-col items-center justify-center gap-0.5 border-2 border-emerald-200 cursor-pointer select-none"
+            className="w-full min-h-[56px] py-3 px-3 rounded-2xl bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-500 text-black font-black uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow-2xl shadow-emerald-500/60 animate-pulse-fast flex flex-col items-center justify-center gap-0.5 border-2 border-emerald-200 cursor-pointer select-none"
           >
             <div className="flex items-center gap-2 text-base sm:text-lg font-black tracking-tight">
-              <HandCoins className="w-5 h-5 animate-bounce" />
+              <HandCoins className="w-5 h-5 animate-bounce shrink-0" />
               <span>CASH OUT MANUEL</span>
             </div>
-            <div className="flex items-center gap-2 text-xs sm:text-sm font-mono font-bold bg-black/25 px-3 py-0.5 rounded-full mt-0.5 text-black">
+            <div className="flex items-center gap-1.5 text-xs sm:text-sm font-mono font-bold bg-black/25 px-2.5 py-0.5 rounded-full text-black">
               <span>RETIRER {formatCurrency(liveWin, currency)}</span>
               <span className="font-black bg-black text-emerald-400 px-1.5 py-0.2 rounded">
                 +{formatCurrency(liveProfit, currency)} ({currentMultiplier.toFixed(2)}x)
@@ -429,36 +424,33 @@ export function BetPanel({
 
         ) : localBet && localBet.status === 'ACTIVE' && status === 'BETTING' ? (
           
-          /* MISE VALIDÉE ET SOLDE DÉFALQUÉ (ATTENTE DU DÉCOLLAGE) */
-          <div className="w-full py-3.5 px-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs font-bold font-mono">
-              <Check className="w-4 h-4 text-emerald-400" />
-              <span>Mise {formatCurrency(localBet.amount, currency)} défalquée et confirmée</span>
+          <div className="w-full min-h-[52px] py-3 px-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-between text-xs font-bold font-mono">
+            <div className="flex items-center gap-1.5">
+              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Mise {formatCurrency(localBet.amount, currency)} validée</span>
             </div>
-            <span className="text-[11px] uppercase tracking-wider font-semibold text-gray-400">
+            <span className="text-[10px] uppercase tracking-wider text-gray-400">
               Décollage imminent...
             </span>
           </div>
 
         ) : localBet && localBet.status === 'CASHED_OUT' ? (
           
-          /* CASH OUT RÉUSSI */
-          <div className="w-full py-3.5 px-4 rounded-xl bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 flex items-center justify-between shadow-lg shadow-emerald-500/20">
-            <div className="flex items-center gap-2 text-xs font-black font-mono">
-              <ArrowUpRight className="w-4 h-4 text-emerald-400" />
+          <div className="w-full min-h-[52px] py-3 px-3.5 rounded-xl bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 flex items-center justify-between shadow-lg shadow-emerald-500/20 text-xs font-mono font-black">
+            <div className="flex items-center gap-1.5">
+              <ArrowUpRight className="w-4 h-4 text-emerald-400 shrink-0" />
               <span>CASH OUT RÉUSSI !</span>
             </div>
-            <span className="font-mono font-black text-sm text-white">
+            <span className="text-white text-sm">
               +{formatCurrency(localBet.profit || 0, currency)} ({localBet.cashoutMultiplier?.toFixed(2)}x)
             </span>
           </div>
 
         ) : localBet && localBet.status === 'LOST' ? (
           
-          /* MANCHE PERDUE : L'ARGENT RESTE DÉFALQUÉ ET N'EST PAS RENDU */
-          <div className="w-full py-3.5 px-4 rounded-xl bg-crash/15 border border-crash/30 text-crash flex items-center justify-between text-xs font-mono font-bold">
+          <div className="w-full min-h-[52px] py-3 px-3.5 rounded-xl bg-crash/15 border border-crash/30 text-crash flex items-center justify-between text-xs font-mono font-bold">
             <div className="flex items-center gap-1.5">
-              <TrendingDown className="w-4 h-4 text-crash" />
+              <TrendingDown className="w-4 h-4 text-crash shrink-0" />
               <span>Manche crashée</span>
             </div>
             <span>Mise défalquée : -{formatCurrency(localBet.amount, currency)}</span>
@@ -466,46 +458,60 @@ export function BetPanel({
 
         ) : isQueuedForNextRound ? (
           
-          /* MISE EN FILE POUR LE PROCHAIN TOUR */
           <div className="flex items-center gap-2">
-            <div className="flex-1 py-3.5 px-3 rounded-xl bg-primary/10 border border-primary/30 text-primary text-xs font-bold font-mono flex items-center justify-center gap-1.5">
-              <RotateCcw className="w-4 h-4 animate-spin" />
+            <div className="flex-1 min-h-[52px] py-3 px-3 rounded-xl bg-primary/10 border border-primary/30 text-primary text-xs font-bold font-mono flex items-center justify-center gap-1.5">
+              <RotateCcw className="w-4 h-4 animate-spin shrink-0" />
               <span>Mise en file ({formatCurrency(amount, currency)})</span>
             </div>
             <button
+              type="button"
               onClick={handleCancelBet}
-              className="p-3.5 rounded-xl bg-card border border-border text-gray-400 hover:text-crash transition"
+              className="p-3.5 min-w-[52px] min-h-[52px] rounded-xl bg-card border border-border text-gray-400 hover:text-crash transition flex items-center justify-center"
               title="Annuler la réservation"
             >
               <XCircle className="w-5 h-5" />
             </button>
           </div>
 
-        ) : user && !isEmailVerified ? (
+        ) : !user ? (
+          
+          /* JOUEUR NON CONNECTÉ : INVITATION À SE CONNECTER SANS DEMO */
+          <button
+            type="button"
+            onClick={() => onOpenAuth && onOpenAuth('login')}
+            className="w-full min-h-[52px] py-3.5 px-4 rounded-xl font-black text-sm uppercase tracking-wider bg-gradient-to-r from-primary to-cyan-400 text-black hover:brightness-110 active:scale-98 transition shadow-lg shadow-primary/20 flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <LogIn className="w-4 h-4 shrink-0" />
+            <span>CONNECTEZ-VOUS POUR PARIER</span>
+          </button>
+
+        ) : !isEmailVerified ? (
+          
           <a
             href={`/auth/verify-email?email=${encodeURIComponent(user.email)}`}
-            className="w-full py-4 rounded-xl bg-yellow-500/15 border border-yellow-500/40 text-yellow-300 font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-yellow-500/25 transition shadow-lg text-center px-3"
+            className="w-full min-h-[52px] py-3 rounded-xl bg-yellow-500/15 border border-yellow-500/40 text-yellow-300 font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 hover:bg-yellow-500/25 transition shadow-lg text-center px-3"
           >
             <AlertCircle className="w-4 h-4 shrink-0 text-yellow-400" />
             <span>Confirmez votre email pour parier</span>
           </a>
+
         ) : (
           
-          /* BOUTON PARIER (OU PARIER POUR LE PROCHAIN VOL) */
+          /* BOUTON PARIER STANDARD */
           <button
             type="button"
             onClick={handlePlaceBet}
-            className={`w-full py-4 rounded-xl font-black text-sm uppercase tracking-wider transition-all duration-150 flex items-center justify-center gap-2 shadow-lg active:scale-98 cursor-pointer ${
+            className={`w-full min-h-[52px] py-3.5 px-3 rounded-xl font-black text-sm uppercase tracking-wider transition-all duration-150 flex items-center justify-center gap-2 shadow-lg active:scale-98 cursor-pointer ${
               status === 'BETTING'
                 ? 'bg-gradient-to-r from-primary via-cyan-400 to-primary text-black hover:brightness-110 shadow-primary/30'
                 : 'bg-card border border-primary/40 text-primary hover:bg-primary/10'
             }`}
           >
-            <Zap className="w-4 h-4" />
+            <Zap className="w-4 h-4 shrink-0" />
             {status === 'BETTING' ? (
               <span>PARIER {formatCurrency(amount, currency)}</span>
             ) : (
-              <span>PARIER POUR LE PROCHAIN VOL ({formatCurrency(amount, currency)})</span>
+              <span className="text-xs sm:text-sm">PARIER PROCHAIN VOL ({formatCurrency(amount, currency)})</span>
             )}
           </button>
 

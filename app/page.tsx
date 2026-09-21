@@ -209,13 +209,13 @@ export default function ArenaPage() {
       <HistoryRibbon history={recentHistory} />
 
       {/* 3. ARÈNE PRINCIPALE DE JEU */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 md:p-6 flex flex-col gap-4">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-2 xs:p-2.5 sm:p-4 md:p-6 flex flex-col gap-2.5 sm:gap-4">
         
         {/* SECTION SUPÉRIEURE : CANVAS & LIVE TABLE */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-[380px] sm:min-h-[460px]">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5 sm:gap-4 flex-1">
           
           {/* ÉCRAN DU JEU (CANVAS + MULTIPLICATEUR GÉANT) */}
-          <div className="lg:col-span-8 relative flex flex-col h-full min-h-[320px] sm:min-h-[420px]">
+          <div className="lg:col-span-8 relative flex flex-col h-auto lg:h-full">
             <CrashCanvas
               status={status}
               multiplier={multiplier}
@@ -232,7 +232,7 @@ export default function ArenaPage() {
           </div>
 
           {/* TABLEAU DES PARIS EN DIRECT */}
-          <div className="lg:col-span-4 h-full">
+          <div className="lg:col-span-4 h-auto lg:h-full">
             <LiveBetsTable bets={activeBets} />
           </div>
 
@@ -249,12 +249,12 @@ export default function ArenaPage() {
         </div>
 
         {/* PIED DE PAGE & BADGES DE SÉCURITÉ */}
-        <footer className="mt-auto pt-4 pb-2 border-t border-border/40 flex flex-col sm:flex-row items-center justify-between text-xs text-gray-500 font-mono gap-2">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>Moteur Provably Fair Certifié SHA-256 / HMAC-SHA-256</span>
+        <footer className="mt-auto pt-3 pb-2 border-t border-border/40 flex flex-col sm:flex-row items-center justify-between text-xs text-gray-500 font-mono gap-2 text-center sm:text-left">
+          <div className="flex items-center justify-center gap-1.5">
+            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="text-[11px] sm:text-xs">Moteur Provably Fair Certifié SHA-256 / HMAC-SHA-512</span>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center justify-center flex-wrap gap-3 sm:gap-4 text-[11px] sm:text-xs">
             <Link href="/provably-fair" className="hover:text-primary transition">
               Vérifier l’Algorithme
             </Link>

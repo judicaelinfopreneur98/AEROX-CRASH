@@ -47,7 +47,7 @@ export function CrashCanvas({
   // Initialisation des étoiles d'ambiance
   useEffect(() => {
     const stars: Star[] = [];
-    for (let i = 0; i < 90; i++) {
+    for (let i = 0; i < 75; i++) {
       stars.push({
         x: Math.random() * 1200,
         y: Math.random() * 800,
@@ -62,14 +62,13 @@ export function CrashCanvas({
   // Déclenchement de l'onde de choc lors du crash
   useEffect(() => {
     if (status === 'CRASHED') {
-      shockwaveRef.current = { radius: 10, maxRadius: 350, alpha: 1.0 };
-      // Générer une explosion de particules rouges néon
+      shockwaveRef.current = { radius: 10, maxRadius: 300, alpha: 1.0 };
       const burst: Particle[] = [];
-      for (let i = 0; i < 70; i++) {
+      for (let i = 0; i < 60; i++) {
         const angle = Math.random() * Math.PI * 2;
-        const speed = 2 + Math.random() * 7;
+        const speed = 2 + Math.random() * 6;
         burst.push({
-          x: 0, // sera ajusté aux coordonnées de l'avion dans la boucle
+          x: 0,
           y: 0,
           vx: Math.cos(angle) * speed,
           vy: Math.sin(angle) * speed,
@@ -77,7 +76,7 @@ export function CrashCanvas({
           color: Math.random() > 0.3 ? '#FF3366' : '#FFAA00',
           alpha: 1,
           life: 0,
-          maxLife: 40 + Math.random() * 30,
+          maxLife: 35 + Math.random() * 25,
         });
       }
       particlesRef.current.push(...burst);
@@ -90,21 +89,31 @@ export function CrashCanvas({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    let width = (canvas.width = canvas.parentElement?.clientWidth || 800);
-    let height = (canvas.height = canvas.parentElement?.clientHeight || 450);
+    let dpr = window.devicePixelRatio || 1;
+    let width = canvas.parentElement?.clientWidth || 800;
+    let height = canvas.parentElement?.clientHeight || 400;
 
-    const handleResize = () => {
+    const setupCanvasSize = () => {
       if (!canvas || !canvas.parentElement) return;
-      width = canvas.width = canvas.parentElement.clientWidth;
-      height = canvas.height = canvas.parentElement.clientHeight;
+      dpr = window.devicePixelRatio || 1;
+      width = canvas.parentElement.clientWidth;
+      height = canvas.parentElement.clientHeight;
+
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     };
-    window.addEventListener('resize', handleResize);
+
+    setupCanvasSize();
+    window.addEventListener('resize', setupCanvasSize);
 
     // Boucle de rendu Canvas
     const render = () => {
       ctx.clearRect(0, 0, width, height);
 
-      // 1. FOND DE L'ESPACE QUANTIQUE (Dégradé sombre)
+      // 1. FOND DE L'ESPACE QUANTIQUE
       const bgGrad = ctx.createLinearGradient(0, 0, width, height);
       bgGrad.addColorStop(0, '#06080E');
       bgGrad.addColorStop(0.5, '#0B0F19');
@@ -114,7 +123,7 @@ export function CrashCanvas({
 
       // 2. ÉTOILES ET PARTICULES DE VITESSE
       const isFlying = status === 'RUNNING';
-      const speedFactor = isFlying ? Math.min(8, 1 + Math.log2(multiplier) * 1.5) : 0.8;
+      const speedFactor = isFlying ? Math.min(7, 1 + Math.log2(multiplier) * 1.5) : 0.8;
 
       ctx.save();
       for (const star of starsRef.current) {
@@ -126,7 +135,6 @@ export function CrashCanvas({
 
         ctx.fillStyle = `rgba(255, 255, 255, ${star.alpha})`;
         if (isFlying && speedFactor > 2) {
-          // Lignes de vitesse warp
           ctx.strokeStyle = `rgba(0, 240, 255, ${star.alpha * 0.7})`;
           ctx.lineWidth = star.size;
           ctx.beginPath();
@@ -143,34 +151,33 @@ export function CrashCanvas({
 
       // 3. GRILLE DE TÉLÉMÉTRIE D'ALTITUDE
       ctx.save();
-      ctx.strokeStyle = 'rgba(31, 41, 66, 0.4)';
+      ctx.strokeStyle = 'rgba(31, 41, 66, 0.35)';
       ctx.lineWidth = 1;
-      // Lignes horizontales
-      for (let y = height - 40; y > 40; y -= 60) {
+      const stepY = Math.max(40, Math.floor(height / 6));
+      for (let y = height - 30; y > 30; y -= stepY) {
         ctx.beginPath();
-        ctx.moveTo(40, y);
-        ctx.lineTo(width - 20, y);
+        ctx.moveTo(30, y);
+        ctx.lineTo(width - 15, y);
         ctx.stroke();
       }
-      // Lignes verticales
-      for (let x = 40; x < width; x += 90) {
+      const stepX = Math.max(60, Math.floor(width / 7));
+      for (let x = 30; x < width; x += stepX) {
         ctx.beginPath();
-        ctx.moveTo(x, 40);
-        ctx.lineTo(x, height - 40);
+        ctx.moveTo(x, 30);
+        ctx.lineTo(x, height - 30);
         ctx.stroke();
       }
       ctx.restore();
 
       // 4. LOGIQUE DE VOL & TRAJECTOIRE
-      const originX = 50;
-      const originY = height - 45;
+      const originX = Math.min(45, width * 0.1);
+      const originY = height - 35;
 
       if (status === 'RUNNING' || status === 'CRASHED') {
-        // Calcul de la position de l'avion selon la courbe
-        // M = 1.00 -> t = 0 -> (originX, originY)
-        const progress = Math.min(1.0, Math.log2(multiplier) / 5.5); // progression visuelle douce
-        const planeX = originX + progress * (width - 150);
-        const planeY = originY - Math.pow(progress, 0.75) * (height - 120);
+        const progress = Math.min(1.0, Math.log2(multiplier) / 5.5);
+        const maxPlaneX = width - Math.min(80, width * 0.2);
+        const planeX = originX + progress * (maxPlaneX - originX);
+        const planeY = originY - Math.pow(progress, 0.75) * (height - Math.min(90, height * 0.25));
 
         // A. ZONE GLOW SOUS LA COURBE
         const areaGrad = ctx.createLinearGradient(originX, originY, planeX, planeY);
@@ -185,7 +192,6 @@ export function CrashCanvas({
 
         ctx.beginPath();
         ctx.moveTo(originX, originY);
-        // Courbe de Bézier quadratique élégante
         const cpX = originX + (planeX - originX) * 0.45;
         const cpY = originY;
         ctx.quadraticCurveTo(cpX, cpY, planeX, planeY);
@@ -197,90 +203,90 @@ export function CrashCanvas({
         // B. LIGNE DE TRAJECTOIRE NÉON
         ctx.save();
         ctx.shadowColor = status === 'CRASHED' ? '#FF3366' : '#00F0FF';
-        ctx.shadowBlur = 15;
+        ctx.shadowBlur = 14;
         ctx.strokeStyle = status === 'CRASHED' ? '#FF3366' : '#00F0FF';
-        ctx.lineWidth = 3.5;
+        ctx.lineWidth = width < 400 ? 2.5 : 3.5;
         ctx.beginPath();
         ctx.moveTo(originX, originY);
         ctx.quadraticCurveTo(cpX, cpY, planeX, planeY);
         ctx.stroke();
         ctx.restore();
 
-        // C. PARTICULES DE PROPULSION DU RÉACTEUR
+        // C. PARTICULES DE PROPULSION
         if (status === 'RUNNING') {
-          for (let i = 0; i < 3; i++) {
+          for (let i = 0; i < 2; i++) {
             particlesRef.current.push({
-              x: planeX - 12,
-              y: planeY + 2,
-              vx: -(1.5 + Math.random() * 3.5),
+              x: planeX - 10,
+              y: planeY + 1,
+              vx: -(1.5 + Math.random() * 3),
               vy: (Math.random() - 0.5) * 1.5,
-              size: 2 + Math.random() * 3,
+              size: 1.5 + Math.random() * 2.5,
               color: Math.random() > 0.4 ? '#00F0FF' : '#8B5CF6',
               alpha: 0.9,
               life: 0,
-              maxLife: 20 + Math.random() * 15,
+              maxLife: 18 + Math.random() * 12,
             });
           }
         }
 
-        // D. RENDU DU VAISSEAU SUPERSONIQUE ORIGINAL : "AEROX-X1"
+        // D. RENDU DU VAISSEAU SUPERSONIQUE AEROX-X1
         if (status === 'RUNNING') {
           ctx.save();
           ctx.translate(planeX, planeY);
 
-          // Angle d'inclinaison calculé selon la pente de la courbe
+          const scale = width < 400 ? 0.8 : 1.0;
+          ctx.scale(scale, scale);
+
           const angle = -Math.min(0.55, progress * 0.6);
           ctx.rotate(angle);
 
-          // Éclairage néon sous le cockpit
           ctx.shadowColor = '#00F0FF';
-          ctx.shadowBlur = 18;
+          ctx.shadowBlur = 16;
 
-          // AEROX-X1 Craft Design
-          // Corps principal (Fuselage furtif en flèche)
+          // Corps principal furtif
           ctx.fillStyle = '#0F172A';
           ctx.strokeStyle = '#00F0FF';
           ctx.lineWidth = 1.5;
 
           ctx.beginPath();
-          ctx.moveTo(26, 0);       // Nez supersonique
-          ctx.lineTo(-14, -12);    // Aile gauche delta
-          ctx.lineTo(-8, -4);      // Décrochage fuselage
-          ctx.lineTo(-18, 0);      // Tuyère réacteur centrale
-          ctx.lineTo(-8, 4);       // Décrochage
-          ctx.lineTo(-14, 12);     // Aile droite delta
+          ctx.moveTo(24, 0);
+          ctx.lineTo(-12, -11);
+          ctx.lineTo(-7, -4);
+          ctx.lineTo(-16, 0);
+          ctx.lineTo(-7, 4);
+          ctx.lineTo(-12, 11);
           ctx.closePath();
           ctx.fill();
           ctx.stroke();
 
-          // Lignes de flux néon sur les ailes
+          // Lignes de flux
           ctx.strokeStyle = '#8B5CF6';
           ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.moveTo(10, 0);
-          ctx.lineTo(-8, -8);
-          ctx.moveTo(10, 0);
-          ctx.lineTo(-8, 8);
+          ctx.moveTo(8, 0);
+          ctx.lineTo(-7, -7);
+          ctx.moveTo(8, 0);
+          ctx.lineTo(-7, 7);
           ctx.stroke();
 
-          // Canopée / Cockpit Quantum
+          // Cockpit Quantum
           ctx.fillStyle = '#00F0FF';
           ctx.beginPath();
-          ctx.ellipse(2, 0, 8, 2.5, 0, 0, Math.PI * 2);
+          ctx.ellipse(2, 0, 7, 2.2, 0, 0, Math.PI * 2);
           ctx.fill();
 
-          // Flamme de postcombustion (Thruster Flame)
-          const flameLength = 10 + Math.random() * 14;
-          const flameGrad = ctx.createLinearGradient(-18, 0, -18 - flameLength, 0);
+          // Flamme postcombustion
+          const flameLength = 8 + Math.random() * 12;
+          const flameGrad = ctx.createLinearGradient(-16, 0, -16 - flameLength, 0);
           flameGrad.addColorStop(0, '#FFFFFF');
           flameGrad.addColorStop(0.3, '#00F0FF');
           flameGrad.addColorStop(1, 'transparent');
 
           ctx.fillStyle = flameGrad;
           ctx.beginPath();
-          ctx.moveTo(-18, -3);
-          ctx.lineTo(-18 - flameLength, 0);
-          ctx.lineTo(-18, 3);
+          ctx.moveTo(-16, -2.5);
+          ctx.lineTo(-16 - flameLength, 0);
+          ctx.lineTo(-16, 2.5);
           ctx.closePath();
           ctx.fill();
 
@@ -292,19 +298,19 @@ export function CrashCanvas({
           const sw = shockwaveRef.current;
           ctx.save();
           ctx.strokeStyle = `rgba(255, 51, 102, ${sw.alpha})`;
-          ctx.lineWidth = 4 * sw.alpha;
+          ctx.lineWidth = 3.5 * sw.alpha;
           ctx.beginPath();
           ctx.arc(planeX, planeY, sw.radius, 0, Math.PI * 2);
           ctx.stroke();
           ctx.restore();
 
-          sw.radius += 12;
+          sw.radius += 10;
           sw.alpha = Math.max(0, 1 - sw.radius / sw.maxRadius);
           if (sw.alpha <= 0) shockwaveRef.current = null;
         }
       }
 
-      // 5. RENDU ET ANIMATION DES PARTICULES (PROPULSION / EXPLOSION)
+      // 5. RENDU ET ANIMATION DES PARTICULES
       ctx.save();
       for (let i = particlesRef.current.length - 1; i >= 0; i--) {
         const p = particlesRef.current[i];
@@ -332,7 +338,6 @@ export function CrashCanvas({
         const radius = Math.min(width, height) * 0.28;
 
         ctx.save();
-        // Cercles concentriques
         ctx.strokeStyle = 'rgba(0, 240, 255, 0.15)';
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -341,18 +346,16 @@ export function CrashCanvas({
         ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
         ctx.stroke();
 
-        // Réticule
         ctx.beginPath();
-        ctx.moveTo(centerX - radius - 10, centerY);
-        ctx.lineTo(centerX + radius + 10, centerY);
-        ctx.moveTo(centerX, centerY - radius - 10);
-        ctx.lineTo(centerX, centerY + radius + 10);
+        ctx.moveTo(centerX - radius - 8, centerY);
+        ctx.lineTo(centerX + radius + 8, centerY);
+        ctx.moveTo(centerX, centerY - radius - 8);
+        ctx.lineTo(centerX, centerY + radius + 8);
         ctx.stroke();
 
-        // Aiguille radar balayante
         const sweepAngle = (Date.now() / 1000) * 2;
         const sweepGrad = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, radius);
-        sweepGrad.addColorStop(0, 'rgba(0, 240, 255, 0.3)');
+        sweepGrad.addColorStop(0, 'rgba(0, 240, 255, 0.25)');
         sweepGrad.addColorStop(1, 'transparent');
 
         ctx.fillStyle = sweepGrad;
@@ -371,13 +374,13 @@ export function CrashCanvas({
     render();
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('resize', setupCanvasSize);
       cancelAnimationFrame(animFrameId.current);
     };
   }, [status, multiplier]);
 
   return (
-    <div className="relative w-full h-full min-h-[320px] sm:min-h-[420px] rounded-2xl overflow-hidden border border-border bg-[#06080E] shadow-2xl">
+    <div className="relative w-full h-[220px] xs:h-[260px] sm:h-[340px] md:h-[400px] lg:h-full min-h-[220px] sm:min-h-[360px] rounded-2xl overflow-hidden border border-border bg-[#06080E] shadow-2xl">
       <canvas ref={canvasRef} className="w-full h-full block" />
     </div>
   );

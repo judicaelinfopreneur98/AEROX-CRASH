@@ -97,8 +97,8 @@ function VerifyEmailContent() {
   const isAlreadyVerified = isEmailVerified || verifiedParam;
 
   return (
-    <div className="flex-1 flex items-center justify-center p-4">
-      <div className="bg-[#0E131F] border border-border w-full max-w-md rounded-2xl p-6 sm:p-8 shadow-2xl space-y-6">
+    <div className="flex-1 flex items-center justify-center p-3 sm:p-4">
+      <div className="bg-[#0E131F] border border-border w-full max-w-md rounded-2xl p-4 sm:p-8 shadow-2xl space-y-4 sm:space-y-6">
         
         {/* EN-TÊTE */}
         <div className="text-center space-y-2">
