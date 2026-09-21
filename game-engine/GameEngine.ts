@@ -340,6 +340,27 @@ export class GameEngine extends EventEmitter {
     return { success: true, bet: playerBet };
   }
 
+  public registerExternalBet(bet: ActivePlayerBet) {
+    this.activeBets.set(bet.betId, bet);
+    this.emit('bet.accepted', { bet });
+  }
+
+  public registerExternalCashout(betId: string, multiplier: number, profit: number) {
+    const bet = this.activeBets.get(betId);
+    if (bet) {
+      bet.status = 'CASHED_OUT';
+      bet.cashoutMultiplier = multiplier;
+      bet.profit = profit;
+      bet.cashedOutAt = new Date();
+      this.emit('cashout.success', {
+        betId,
+        userId: bet.userId,
+        multiplier,
+        profit,
+      });
+    }
+  }
+
   public async cashOut(
     userId: string,
     betId: string
@@ -426,6 +447,10 @@ export class GameEngine extends EventEmitter {
 
   public getStatus(): GameState {
     return this.status;
+  }
+
+  public getCurrentMultiplier(): number {
+    return this.currentMultiplier;
   }
 
   /**

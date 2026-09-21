@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAuthSession } from '@/auth/session';
 import { AuthService } from '@/auth/AuthService';
-import { WalletEngine } from '@/wallet/WalletEngine';
+import { supabaseWalletService } from '@/wallet/SupabaseWalletService';
 
 export async function GET(request: Request) {
   const session = getAuthSession(request);
@@ -9,22 +9,27 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Non authentifié.' }, { status: 401 });
   }
 
-  const user = AuthService.getInstance().getUserById(session.id);
-  if (!user) {
-    return NextResponse.json({ error: 'Utilisateur introuvable.' }, { status: 404 });
+  try {
+    const user = await AuthService.getInstance().getUserByIdAsync(session.id);
+    if (!user) {
+      return NextResponse.json({ error: 'Utilisateur introuvable.' }, { status: 404 });
+    }
+
+    // Récupération du solde réel directement dans Supabase
+    const wallet = await supabaseWalletService.getUserBalance(session.id);
+
+    return NextResponse.json({
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+      currency: wallet.currency || user.currency || 'EUR',
+      isEmailVerified: user.isEmailVerified ?? false,
+      isSuspended: user.isSuspended,
+      balance: wallet.balance,
+      lockedBalance: wallet.lockedBalance,
+    });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || 'Erreur serveur.' }, { status: 500 });
   }
-
-  const walletRes = await WalletEngine.getInstance().getBalance(session.id);
-
-  return NextResponse.json({
-    id: user.id,
-    username: user.username,
-    email: user.email,
-    role: user.role,
-    currency: user.currency || 'EUR',
-    isEmailVerified: user.isEmailVerified ?? false,
-    isSuspended: user.isSuspended,
-    balance: walletRes.data?.balance || 0,
-    lockedBalance: walletRes.data?.lockedBalance || 0,
-  });
 }

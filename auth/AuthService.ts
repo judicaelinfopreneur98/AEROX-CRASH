@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { UserPayload, Role, AuthTokens } from './types';
 import { WalletEngine } from '../wallet/WalletEngine';
 import { sendVerificationEmail } from '../lib/email';
+import { prisma } from '../lib/prisma';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'aerox-quantum-jwt-secret-key-production-change-in-env-2026';
 const JWT_EXPIRES_IN = '7d';
@@ -138,6 +139,34 @@ export class AuthService {
     const initialBalance = 1000.0;
     WalletEngine.getInstance().getOrCreateWallet(id, initialBalance, validCurrency);
 
+    // Persistance dans Supabase PostgreSQL via Prisma
+    try {
+      await prisma.user.create({
+        data: {
+          id,
+          username,
+          email: emailKey,
+          passwordHash,
+          role: 'USER',
+          currency: validCurrency,
+          isEmailVerified: false,
+          verificationCode: verificationCodeHash,
+          verificationToken,
+          verificationExpires,
+          wallet: {
+            create: {
+              balance: initialBalance,
+              lockedBalance: 0,
+              currency: validCurrency,
+              version: 1,
+            },
+          },
+        },
+      });
+    } catch (dbErr: any) {
+      console.warn('[AuthService] Avertissement persistance Supabase à l\'inscription:', dbErr.message);
+    }
+
     // Envoi du code exclusivement par email (await pour garantir l'exécution sur Serverless Vercel)
     try {
       const emailResult = await sendVerificationEmail({
@@ -161,15 +190,45 @@ export class AuthService {
 
   public async login(email: string, password: string): Promise<AuthTokens> {
     const emailKey = email.toLowerCase().trim();
-    const userId = this.usersByEmail.get(emailKey);
+    let userId = this.usersByEmail.get(emailKey);
+    let user: UserRecord | undefined = userId ? this.users.get(userId) : undefined;
 
-    if (!userId) {
-      throw new Error('Identifiants incorrects.');
+    // Si non trouvé en mémoire locale (ex: instance Serverless Vercel différente), recherche dans Supabase
+    if (!user) {
+      try {
+        const dbUser = await prisma.user.findFirst({
+          where: { email: emailKey },
+          include: { wallet: true },
+        });
+        if (dbUser) {
+          user = {
+            id: dbUser.id,
+            username: dbUser.username,
+            email: dbUser.email,
+            passwordHash: dbUser.passwordHash,
+            role: dbUser.role as Role,
+            currency: dbUser.currency,
+            isEmailVerified: dbUser.isEmailVerified,
+            verificationCodeHash: dbUser.verificationCode || undefined,
+            verificationToken: dbUser.verificationToken || undefined,
+            verificationExpires: dbUser.verificationExpires || undefined,
+            isSuspended: dbUser.isSuspended,
+            createdAt: dbUser.createdAt,
+          };
+          this.users.set(user.id, user);
+          this.usersByEmail.set(user.email.toLowerCase(), user.id);
+          this.usersByUsername.set(user.username.toLowerCase(), user.id);
+          if (dbUser.wallet) {
+            WalletEngine.getInstance().getOrCreateWallet(user.id, dbUser.wallet.balance, dbUser.wallet.currency);
+          }
+        }
+      } catch (dbErr: any) {
+        console.warn('[AuthService] Avertissement recherche Supabase au login:', dbErr.message);
+      }
     }
 
-    const user = this.users.get(userId);
     if (!user) {
-      throw new Error('Utilisateur introuvable.');
+      throw new Error('Identifiants incorrects.');
     }
 
     if (user.isSuspended) {
@@ -369,6 +428,42 @@ export class AuthService {
 
   public getUserById(userId: string): UserRecord | null {
     return this.users.get(userId) || null;
+  }
+
+  public async getUserByIdAsync(userId: string): Promise<UserRecord | null> {
+    const cached = this.users.get(userId);
+    if (cached) return cached;
+
+    try {
+      const dbUser = await prisma.user.findUnique({
+        where: { id: userId },
+        include: { wallet: true },
+      });
+      if (dbUser) {
+        const record: UserRecord = {
+          id: dbUser.id,
+          username: dbUser.username,
+          email: dbUser.email,
+          passwordHash: dbUser.passwordHash,
+          role: dbUser.role as Role,
+          currency: dbUser.currency,
+          isEmailVerified: dbUser.isEmailVerified,
+          verificationCodeHash: dbUser.verificationCode || undefined,
+          verificationToken: dbUser.verificationToken || undefined,
+          verificationExpires: dbUser.verificationExpires || undefined,
+          isSuspended: dbUser.isSuspended,
+          createdAt: dbUser.createdAt,
+        };
+        this.users.set(record.id, record);
+        this.usersByEmail.set(record.email.toLowerCase(), record.id);
+        this.usersByUsername.set(record.username.toLowerCase(), record.id);
+        if (dbUser.wallet) {
+          WalletEngine.getInstance().getOrCreateWallet(record.id, dbUser.wallet.balance, dbUser.wallet.currency);
+        }
+        return record;
+      }
+    } catch {}
+    return null;
   }
 
   public getAllUsers(): UserRecord[] {

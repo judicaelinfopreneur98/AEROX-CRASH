@@ -48,6 +48,8 @@ export function BetPanel({
   // Pari local actif (synchronisé avec myActiveBet ou optimiste)
   const [localBet, setLocalBet] = useState<ActivePlayerBet | null>(myActiveBet);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isCashoutSubmitting, setIsCashoutSubmitting] = useState<boolean>(false);
 
   const quickAmounts = isFcfa ? [50, 100, 200, 500, 1000, 2000] : [1, 2, 5, 10, 25, 50];
 
@@ -84,18 +86,18 @@ export function BetPanel({
 
   // Gestion de la file d'attente pour la prochaine manche
   useEffect(() => {
-    if (status === 'BETTING' && isQueuedForNextRound && !localBet) {
+    if (status === 'BETTING' && isQueuedForNextRound && !localBet && !isSubmitting) {
       handlePlaceBet();
       setIsQueuedForNextRound(false);
     }
-  }, [status, isQueuedForNextRound, localBet]);
+  }, [status, isQueuedForNextRound, localBet, isSubmitting]);
 
   // Auto-Bet
   useEffect(() => {
-    if (status === 'BETTING' && autoBetEnabled && !localBet && !isQueuedForNextRound && user) {
+    if (status === 'BETTING' && autoBetEnabled && !localBet && !isQueuedForNextRound && !isSubmitting && user) {
       handlePlaceBet();
     }
-  }, [status, autoBetEnabled, localBet, user]);
+  }, [status, autoBetEnabled, localBet, isQueuedForNextRound, isSubmitting, user]);
 
   const handleAmountChange = (val: number) => {
     const minVal = isFcfa ? 100 : 0.1;
@@ -118,7 +120,7 @@ export function BetPanel({
   };
 
   // =========================================================================
-  // ACTION : PLACER UNE MISE (DÉFALCATION IMMÉDIATE DU SOLDE)
+  // ACTION : PLACER UNE MISE (DÉFALCATION SERVEUR DANS SUPABASE)
   // =========================================================================
   const handlePlaceBet = async () => {
     // Si non connecté, inviter à se connecter ou s'inscrire (pas de compte démo)
@@ -139,6 +141,9 @@ export function BetPanel({
       return;
     }
 
+    // Protection anti double-clic
+    if (isSubmitting) return;
+
     if (status !== 'BETTING') {
       setIsQueuedForNextRound(true);
       setErrorMessage(null);
@@ -146,57 +151,48 @@ export function BetPanel({
     }
 
     setErrorMessage(null);
+    setIsSubmitting(true);
     soundManager.playBetPlaced();
 
-    // 1. DÉFALCATION IMMÉDIATE DU SOLDE
-    const newBalance = Math.max(0, Number((balance - amount).toFixed(2)));
-    updateBalanceLocally(newBalance);
-
-    const tempBetId = `bet_${Date.now()}_${panelIndex}`;
     const shouldUseAutoCo = betMode === 'auto';
     const autoCo = shouldUseAutoCo ? autoCashoutValue : null;
-
-    // Création optimiste du pari local
-    const optimisticBet: ActivePlayerBet = {
-      betId: tempBetId,
-      userId: user.id,
-      username: user.username,
-      panelIndex,
-      amount,
-      autoCashout: autoCo,
-      cashoutMultiplier: null,
-      profit: null,
-      status: 'ACTIVE',
-    };
-    setLocalBet(optimisticBet);
-
-    // 2. Envoi via WebSocket
-    socketClient.placeBet(amount, panelIndex, autoCo);
-
-    // 3. Appel REST API de secours
     const token = localStorage.getItem('aerox_jwt');
-    if (token) {
-      try {
-        const res = await fetch('/api/bets', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            amount,
-            panelIndex,
-            autoCashout: autoCo,
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.bet) {
-            setLocalBet(data.bet);
-          }
-          await refreshBalance();
-        }
-      } catch {}
+
+    try {
+      const res = await fetch('/api/bets', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          amount,
+          panelIndex,
+          autoCashout: autoCo,
+          idempotencyKey: `bet_${user.id}_${panelIndex}_${Date.now()}`,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorMessage(data.error || 'Erreur lors du placement de la mise.');
+        await refreshBalance();
+        return;
+      }
+
+      if (data.bet) {
+        setLocalBet(data.bet);
+        socketClient.notifyBetAccepted?.(data.bet);
+      }
+      if (typeof data.newBalance === 'number') {
+        updateBalanceLocally(data.newBalance);
+      }
+      await refreshBalance();
+    } catch (err: any) {
+      setErrorMessage('Erreur réseau lors du placement du pari.');
+      await refreshBalance();
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -207,41 +203,65 @@ export function BetPanel({
   };
 
   // =========================================================================
-  // ACTION : CASH OUT MANUEL INSTANTANÉ
+  // ACTION : CASH OUT MANUEL INSTANTANÉ (CRÉDIT SERVEUR DANS SUPABASE)
   // =========================================================================
   const handleCashOut = async () => {
-    if (!localBet || localBet.status !== 'ACTIVE') return;
+    if (!localBet || localBet.status !== 'ACTIVE' || isCashoutSubmitting) return;
 
+    setIsCashoutSubmitting(true);
     soundManager.playCashoutSuccess();
 
     const mult = Number(currentMultiplier.toFixed(2));
-    const winAmount = Number((localBet.amount * mult).toFixed(2));
-    const profitAmount = Number((winAmount - localBet.amount).toFixed(2));
-
-    const cashedBet: ActivePlayerBet = {
-      ...localBet,
-      status: 'CASHED_OUT',
-      cashoutMultiplier: mult,
-      profit: profitAmount,
-    };
-    setLocalBet(cashedBet);
-
-    // Crédit immédiat du solde
-    const updatedBalance = Number((balance + winAmount).toFixed(2));
-    updateBalanceLocally(updatedBalance);
-
-    socketClient.cashOut(localBet.betId);
-
     const token = localStorage.getItem('aerox_jwt');
-    if (token) {
-      try {
-        fetch(`/api/bets/${localBet.betId}/cashout`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
-        }).then(() => {
-          refreshBalance();
-        }).catch(() => {});
-      } catch {}
+    const targetBetId = localBet.betId || (localBet as any).id;
+
+    try {
+      const res = await fetch(`/api/bets/${targetBetId}/cashout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          multiplier: mult,
+          idempotencyKey: `cashout_${targetBetId}_${Date.now()}`,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setErrorMessage(data.error || 'Erreur lors du cashout.');
+        await refreshBalance();
+        return;
+      }
+
+      const winAmount = data.payout || Number((localBet.amount * mult).toFixed(2));
+      const profitAmount = data.profit || Number((winAmount - localBet.amount).toFixed(2));
+
+      const cashedBet: ActivePlayerBet = {
+        ...localBet,
+        status: 'CASHED_OUT',
+        cashoutMultiplier: mult,
+        profit: profitAmount,
+      };
+      setLocalBet(cashedBet);
+
+      if (typeof data.newBalance === 'number') {
+        updateBalanceLocally(data.newBalance);
+      }
+
+      socketClient.notifyCashoutSuccess?.({
+        betId: targetBetId,
+        multiplier: mult,
+        profit: profitAmount,
+      });
+
+      await refreshBalance();
+    } catch (err: any) {
+      setErrorMessage('Erreur réseau lors de l\'encaissement.');
+      await refreshBalance();
+    } finally {
+      setIsCashoutSubmitting(false);
     }
   };
 
@@ -408,7 +428,8 @@ export function BetPanel({
           <button
             type="button"
             onClick={handleCashOut}
-            className="w-full min-h-[56px] py-3 px-3 rounded-2xl bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-500 text-black font-black uppercase tracking-wider hover:brightness-110 active:scale-95 transition-all shadow-2xl shadow-emerald-500/60 animate-pulse-fast flex flex-col items-center justify-center gap-0.5 border-2 border-emerald-200 cursor-pointer select-none"
+            disabled={isCashoutSubmitting}
+            className="w-full min-h-[56px] py-3 px-3 rounded-2xl bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-500 text-black font-black uppercase tracking-wider hover:brightness-110 active:scale-95 disabled:opacity-60 transition-all shadow-2xl shadow-emerald-500/60 animate-pulse-fast flex flex-col items-center justify-center gap-0.5 border-2 border-emerald-200 cursor-pointer select-none"
           >
             <div className="flex items-center gap-2 text-base sm:text-lg font-black tracking-tight">
               <HandCoins className="w-5 h-5 animate-bounce shrink-0" />
@@ -501,7 +522,8 @@ export function BetPanel({
           <button
             type="button"
             onClick={handlePlaceBet}
-            className={`w-full min-h-[52px] py-3.5 px-3 rounded-xl font-black text-sm uppercase tracking-wider transition-all duration-150 flex items-center justify-center gap-2 shadow-lg active:scale-98 cursor-pointer ${
+            disabled={isSubmitting}
+            className={`w-full min-h-[52px] py-3.5 px-3 rounded-xl font-black text-sm uppercase tracking-wider transition-all duration-150 flex items-center justify-center gap-2 shadow-lg active:scale-98 disabled:opacity-60 cursor-pointer ${
               status === 'BETTING'
                 ? 'bg-gradient-to-r from-primary via-cyan-400 to-primary text-black hover:brightness-110 shadow-primary/30'
                 : 'bg-card border border-primary/40 text-primary hover:bg-primary/10'

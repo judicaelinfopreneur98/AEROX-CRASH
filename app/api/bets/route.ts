@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { getAuthSession } from '@/auth/session';
-import { GameEngine } from '@/game-engine/GameEngine';
-import { WalletEngine } from '@/wallet/WalletEngine';
+import { supabaseWalletService } from '@/wallet/SupabaseWalletService';
 import { AuthService } from '@/auth/AuthService';
 import { placeBetSchema } from '@/lib/validations';
+import { GameEngine } from '@/game-engine/GameEngine';
 
 export async function POST(request: Request) {
   const session = getAuthSession(request);
@@ -12,10 +12,17 @@ export async function POST(request: Request) {
   }
 
   try {
-    const user = AuthService.getInstance().getUserById(session.id);
+    const user = await AuthService.getInstance().getUserByIdAsync(session.id);
     if (!user || !user.isEmailVerified) {
       return NextResponse.json(
         { error: 'Veuillez vérifier votre adresse email avant de pouvoir placer des mises en argent réel.' },
+        { status: 403 }
+      );
+    }
+
+    if (user.isSuspended) {
+      return NextResponse.json(
+        { error: 'Votre compte est suspendu par un administrateur.' },
         { status: 403 }
       );
     }
@@ -31,23 +38,33 @@ export async function POST(request: Request) {
     }
 
     const { amount, panelIndex, autoCashout } = validated.data;
-    const game = GameEngine.getInstance();
+    const idempotencyKey = body.idempotencyKey || `bet_${session.id}_${panelIndex}_${Date.now()}`;
 
-    const res = await game.placeBet(
-      session.id,
-      session.username,
+    // Transaction atomique dans Supabase (verrouillage de ligne PostgreSQL, déduction, création bet & transaction)
+    const result = await supabaseWalletService.placeBetAtomic({
+      userId: session.id,
+      username: session.username,
       amount,
       panelIndex,
-      autoCashout
-    );
+      autoCashout,
+      idempotencyKey,
+    });
 
-    if (!res.success) {
-      return NextResponse.json({ error: res.error }, { status: 400 });
-    }
+    // Synchronisation avec le moteur temps réel s'il tourne sur ce processus
+    try {
+      const game = GameEngine.getInstance();
+      game.registerExternalBet?.(result.bet as any);
+    } catch {}
 
-    return NextResponse.json({ success: true, bet: res.bet }, { status: 201 });
+    return NextResponse.json({
+      success: true,
+      bet: result.bet,
+      newBalance: result.newBalance,
+    }, { status: 201 });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Erreur serveur.' }, { status: 500 });
+    const msg = err.message || 'Erreur lors du placement de la mise.';
+    const status = msg.includes('Solde insuffisant') ? 400 : 500;
+    return NextResponse.json({ error: msg }, { status });
   }
 }
 
@@ -57,6 +74,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Non authentifié.' }, { status: 401 });
   }
 
-  const bets = WalletEngine.getInstance().getUserBets(session.id);
-  return NextResponse.json({ bets }, { status: 200 });
+  try {
+    const bets = await supabaseWalletService.getUserActiveBets(session.id);
+    return NextResponse.json({ bets }, { status: 200 });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || 'Erreur serveur.' }, { status: 500 });
+  }
 }

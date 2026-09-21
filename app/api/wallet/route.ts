@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getAuthSession } from '@/auth/session';
-import { WalletEngine } from '@/wallet/WalletEngine';
+import { supabaseWalletService } from '@/wallet/SupabaseWalletService';
 
 export async function GET(request: Request) {
   const session = getAuthSession(request);
@@ -8,6 +8,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Non authentifié.' }, { status: 401 });
   }
 
-  const result = await WalletEngine.getInstance().getBalance(session.id);
-  return NextResponse.json(result.data, { status: 200 });
+  try {
+    const wallet = await supabaseWalletService.getUserBalance(session.id);
+    return NextResponse.json(wallet, { status: 200 });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || 'Erreur serveur.' }, { status: 500 });
+  }
 }

@@ -218,15 +218,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const refreshBalance = async () => {
-    if (!token) return;
+    const activeToken = token || (typeof window !== 'undefined' ? localStorage.getItem('aerox_jwt') : null);
+    if (!activeToken) return;
     try {
       const res = await fetch('/api/wallet', {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${activeToken}` },
       });
       if (res.ok) {
         const data = await res.json();
-        setBalance(data.balance);
-        setLockedBalance(data.lockedBalance);
+        if (typeof data.balance === 'number') {
+          setBalance(data.balance);
+        }
+        if (typeof data.lockedBalance === 'number') {
+          setLockedBalance(data.lockedBalance);
+        }
       }
     } catch {}
   };

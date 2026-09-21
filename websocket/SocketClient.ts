@@ -398,7 +398,28 @@ export class SocketClient {
         .catch(() => {});
     }
 
-    this.emitLocal(WS_EVENTS.BET_ACCEPTED, { bet: localBet });
+    this.emitLocal(WS_EVENTS.BET_ACCEPTED, localBet);
+  }
+
+  public notifyBetAccepted(bet: any) {
+    if (!bet) return;
+    const normalizedBet = {
+      ...bet,
+      betId: bet.betId || bet.id,
+    };
+    this.myCloudBets.set(normalizedBet.betId, normalizedBet);
+    this.emitLocal(WS_EVENTS.BET_ACCEPTED, normalizedBet);
+  }
+
+  public notifyCashoutSuccess(data: { betId: string; multiplier: number; profit: number }) {
+    if (!data?.betId) return;
+    const bet = this.myCloudBets.get(data.betId);
+    if (bet) {
+      bet.status = 'CASHED_OUT';
+      bet.cashoutMultiplier = data.multiplier;
+      bet.profit = data.profit;
+    }
+    this.emitLocal(WS_EVENTS.CASHOUT_SUCCESS, data);
   }
 
   public cashOut(betId: string) {
@@ -429,7 +450,11 @@ export class SocketClient {
     if (token) {
       fetch(`/api/bets/${betId}/cashout`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ multiplier: mult }),
       }).catch(() => {});
     }
   }

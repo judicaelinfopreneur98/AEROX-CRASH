@@ -140,7 +140,10 @@ export default function ArenaPage() {
     });
 
     // 7. BET ACCEPTED
-    const unsubBet = socketClient.on(WS_EVENTS.BET_ACCEPTED, (newBet: ActivePlayerBet) => {
+    const unsubBet = socketClient.on(WS_EVENTS.BET_ACCEPTED, (payload: any) => {
+      const newBet: ActivePlayerBet = payload?.bet || payload;
+      if (!newBet || !newBet.betId) return;
+
       setActiveBets((prev) => {
         const existingIndex = prev.findIndex((b) => b.betId === newBet.betId);
         if (existingIndex >= 0) {

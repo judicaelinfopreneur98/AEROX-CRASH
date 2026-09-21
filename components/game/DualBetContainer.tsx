@@ -25,13 +25,19 @@ export function DualBetContainer({
   const { user } = useAuth();
   const [mobileTab, setMobileTab] = useState<'1' | '2' | 'both'>('1');
 
-  // Recherche des paris de l'utilisateur connecté pour chaque panneau
+  // Recherche robuste des paris de l'utilisateur connecté pour chaque panneau
   const myBet1 = user
-    ? activeBets.find((b) => b.userId === user.id && b.panelIndex === 1) || null
+    ? (activeBets.find((b: any) => {
+        const item = b?.bet || b;
+        return (item?.userId === user.id || item?.username === user.username) && item?.panelIndex === 1;
+      }) as ActivePlayerBet) || null
     : null;
 
   const myBet2 = user
-    ? activeBets.find((b) => b.userId === user.id && b.panelIndex === 2) || null
+    ? (activeBets.find((b: any) => {
+        const item = b?.bet || b;
+        return (item?.userId === user.id || item?.username === user.username) && item?.panelIndex === 2;
+      }) as ActivePlayerBet) || null
     : null;
 
   const bothActive = myBet1?.status === 'ACTIVE' && myBet2?.status === 'ACTIVE';
