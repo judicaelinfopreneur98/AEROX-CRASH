@@ -45,6 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch('/api/user', {
         headers: { Authorization: `Bearer ${jwt}` },
+        cache: 'no-store',
       });
       if (res.ok) {
         const data = await res.json();
@@ -54,7 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: data.email,
           role: data.role,
           currency: data.currency || 'EUR',
-          isEmailVerified: data.isEmailVerified ?? false,
+          isEmailVerified: data.isEmailVerified === true,
           isSuspended: data.isSuspended,
         });
         setBalance(data.balance);
@@ -74,6 +75,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const savedToken = localStorage.getItem('aerox_jwt');
     if (savedToken) {
       setToken(savedToken);
+      try {
+        const parts = savedToken.split('.');
+        if (parts.length === 3) {
+          const payload = JSON.parse(atob(parts[1]));
+          if (payload && payload.id) {
+            setUser({
+              id: payload.id,
+              username: payload.username,
+              email: payload.email,
+              role: payload.role,
+              currency: payload.currency || 'EUR',
+              isEmailVerified: payload.isEmailVerified === true,
+              isSuspended: payload.isSuspended || false,
+            });
+          }
+        }
+      } catch {}
       fetchUserData(savedToken);
       socketClient.connect(savedToken);
     } else {
@@ -94,15 +112,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ...(prev || {}),
           ...data.user,
           currency: data.user.currency || prev?.currency || 'EUR',
-          isEmailVerified: data.user.isEmailVerified ?? prev?.isEmailVerified ?? false,
+          isEmailVerified: data.user.isEmailVerified === true,
         }));
       }
       if (typeof data.balance === 'number') setBalance(data.balance);
     });
 
+    const handleAuthEvent = (e: any) => {
+      if (e.detail?.isEmailVerified !== undefined) {
+        setUser((prev) => (prev ? { ...prev, isEmailVerified: e.detail.isEmailVerified } : null));
+      }
+      const activeToken = localStorage.getItem('aerox_jwt');
+      if (activeToken) fetchUserData(activeToken);
+    };
+
+    window.addEventListener('auth:user_updated', handleAuthEvent);
+
     return () => {
       unsubWallet();
       unsubAuthSuccess();
+      window.removeEventListener('auth:user_updated', handleAuthEvent);
     };
   }, [fetchUserData]);
 
@@ -154,11 +183,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const verifyEmail = async (code: string) => {
     try {
+      const activeToken = token || (typeof window !== 'undefined' ? localStorage.getItem('aerox_jwt') : null);
       const res = await fetch('/api/auth/verify-email', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
         },
         body: JSON.stringify({ code, email: user?.email }),
       });
@@ -167,15 +197,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { success: false, error: data.error || 'Code invalide.' };
       }
 
-      if (data.token) {
-        setToken(data.token);
-        localStorage.setItem('aerox_jwt', data.token);
+      const newToken = data.token || activeToken;
+      if (newToken) {
+        setToken(newToken);
+        localStorage.setItem('aerox_jwt', newToken);
+        socketClient.authenticate(newToken);
       }
       if (data.user) {
-        setUser(data.user);
+        setUser({
+          ...data.user,
+          isEmailVerified: true,
+        });
       } else {
         setUser((prev) => (prev ? { ...prev, isEmailVerified: true } : null));
       }
+
+      // Forcer un rafraîchissement d'autorité depuis Supabase
+      if (newToken) {
+        await fetchUserData(newToken);
+      }
+
+      // Diffuser l'événement USER_UPDATED
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('auth:user_updated', { detail: data.user }));
+      }
+
       return { success: true };
     } catch {
       return { success: false, error: 'Erreur lors de la validation du code.' };

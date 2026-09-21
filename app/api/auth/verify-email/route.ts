@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { AuthService } from '@/auth/AuthService';
 import { verifyEmailSchema } from '@/lib/validations';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: Request) {
   try {
     const auth = AuthService.getInstance();

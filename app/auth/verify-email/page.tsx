@@ -48,9 +48,10 @@ function VerifyEmailContent() {
       const res = await verifyEmail(code.trim());
       if (res.success) {
         setSuccessMsg('Email vérifié avec succès ! Redirection vers l\'arène...');
+        await refreshUser();
         setTimeout(() => {
           router.push('/');
-        }, 1200);
+        }, 1000);
       } else {
         setError(res.error || 'Code incorrect ou expiré.');
       }

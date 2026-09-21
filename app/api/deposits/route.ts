@@ -24,7 +24,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const user = AuthService.getInstance().getUserById(session.id);
+    const user = await AuthService.getInstance().getUserByIdAsync(session.id);
     if (!user || !user.isEmailVerified) {
       return NextResponse.json(
         { error: 'Vérification email obligatoire pour effectuer des dépôts en argent réel.' },

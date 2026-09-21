@@ -3,6 +3,8 @@ import { getAuthSession } from '@/auth/session';
 import { AuthService } from '@/auth/AuthService';
 import { supabaseWalletService } from '@/wallet/SupabaseWalletService';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: Request) {
   const session = getAuthSession(request);
   if (!session) {
@@ -18,17 +20,24 @@ export async function GET(request: Request) {
     // Récupération du solde réel directement dans Supabase
     const wallet = await supabaseWalletService.getUserBalance(session.id);
 
-    return NextResponse.json({
-      id: user.id,
-      username: user.username,
-      email: user.email,
-      role: user.role,
-      currency: wallet.currency || user.currency || 'EUR',
-      isEmailVerified: user.isEmailVerified ?? false,
-      isSuspended: user.isSuspended,
-      balance: wallet.balance,
-      lockedBalance: wallet.lockedBalance,
-    });
+    return NextResponse.json(
+      {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        currency: wallet.currency || user.currency || 'EUR',
+        isEmailVerified: user.isEmailVerified === true,
+        isSuspended: user.isSuspended,
+        balance: wallet.balance,
+        lockedBalance: wallet.lockedBalance,
+      },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        },
+      }
+    );
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Erreur serveur.' }, { status: 500 });
   }

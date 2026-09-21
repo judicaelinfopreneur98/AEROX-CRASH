@@ -188,44 +188,73 @@ export class AuthService {
     return { user: payload, token };
   }
 
+  public async findUserRecord(emailOrUserId: string): Promise<UserRecord | null> {
+    const key = emailOrUserId.toLowerCase().trim();
+    const memUserId = this.usersByEmail.get(key) || this.usersByUsername.get(key) || emailOrUserId;
+    const memUser = this.users.get(memUserId);
+
+    if (memUser) {
+      // Si l'utilisateur en mémoire n'est pas encore marqué vérifié, vérifier si Supabase l'a validé
+      if (!memUser.isEmailVerified) {
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where: { id: memUser.id },
+            select: { isEmailVerified: true },
+          });
+          if (dbUser?.isEmailVerified) {
+            memUser.isEmailVerified = true;
+          }
+        } catch {}
+      }
+      return memUser;
+    }
+
+    // Si absent de la mémoire (ex: nouveau conteneur Vercel, refresh, restart), charger depuis Supabase
+    try {
+      const dbUser = await prisma.user.findFirst({
+        where: {
+          OR: [
+            { id: emailOrUserId },
+            { email: key },
+            { username: key },
+          ],
+        },
+        include: { wallet: true },
+      });
+
+      if (dbUser) {
+        const record: UserRecord = {
+          id: dbUser.id,
+          username: dbUser.username,
+          email: dbUser.email,
+          passwordHash: dbUser.passwordHash,
+          role: dbUser.role as Role,
+          currency: dbUser.currency,
+          isEmailVerified: dbUser.isEmailVerified,
+          verificationCodeHash: dbUser.verificationCode || undefined,
+          verificationToken: dbUser.verificationToken || undefined,
+          verificationExpires: dbUser.verificationExpires || undefined,
+          isSuspended: dbUser.isSuspended,
+          createdAt: dbUser.createdAt,
+        };
+        this.users.set(record.id, record);
+        this.usersByEmail.set(record.email.toLowerCase(), record.id);
+        this.usersByUsername.set(record.username.toLowerCase(), record.id);
+        if (dbUser.wallet) {
+          WalletEngine.getInstance().getOrCreateWallet(record.id, dbUser.wallet.balance, dbUser.wallet.currency);
+        }
+        return record;
+      }
+    } catch (err: any) {
+      console.warn('[AuthService] Avertissement recherche Supabase:', err.message);
+    }
+
+    return null;
+  }
+
   public async login(email: string, password: string): Promise<AuthTokens> {
     const emailKey = email.toLowerCase().trim();
-    let userId = this.usersByEmail.get(emailKey);
-    let user: UserRecord | undefined = userId ? this.users.get(userId) : undefined;
-
-    // Si non trouvé en mémoire locale (ex: instance Serverless Vercel différente), recherche dans Supabase
-    if (!user) {
-      try {
-        const dbUser = await prisma.user.findFirst({
-          where: { email: emailKey },
-          include: { wallet: true },
-        });
-        if (dbUser) {
-          user = {
-            id: dbUser.id,
-            username: dbUser.username,
-            email: dbUser.email,
-            passwordHash: dbUser.passwordHash,
-            role: dbUser.role as Role,
-            currency: dbUser.currency,
-            isEmailVerified: dbUser.isEmailVerified,
-            verificationCodeHash: dbUser.verificationCode || undefined,
-            verificationToken: dbUser.verificationToken || undefined,
-            verificationExpires: dbUser.verificationExpires || undefined,
-            isSuspended: dbUser.isSuspended,
-            createdAt: dbUser.createdAt,
-          };
-          this.users.set(user.id, user);
-          this.usersByEmail.set(user.email.toLowerCase(), user.id);
-          this.usersByUsername.set(user.username.toLowerCase(), user.id);
-          if (dbUser.wallet) {
-            WalletEngine.getInstance().getOrCreateWallet(user.id, dbUser.wallet.balance, dbUser.wallet.currency);
-          }
-        }
-      } catch (dbErr: any) {
-        console.warn('[AuthService] Avertissement recherche Supabase au login:', dbErr.message);
-      }
-    }
+    const user = await this.findUserRecord(emailKey);
 
     if (!user) {
       throw new Error('Identifiants incorrects.');
@@ -246,31 +275,32 @@ export class AuthService {
   }
 
   public async verifyEmailCode(emailOrUserId: string, code: string): Promise<{ user: UserPayload; token: string }> {
-    const key = emailOrUserId.toLowerCase().trim();
-    let user: UserRecord | undefined;
-
-    const userId = this.usersByEmail.get(key);
-    if (userId) {
-      user = this.users.get(userId);
-    } else {
-      user = this.users.get(emailOrUserId);
-    }
+    const user = await this.findUserRecord(emailOrUserId);
 
     if (!user) {
       throw new Error('Utilisateur introuvable.');
     }
 
     if (user.isEmailVerified) {
+      // Déjà vérifié : s'assurer que Supabase est synchronisé
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { isEmailVerified: true },
+      }).catch(() => {});
       const payload = this.toPayload(user);
       return { user: payload, token: this.generateToken(payload) };
     }
 
     // Vérifier l'expiration (10 minutes max)
-    if (user.verificationExpires && user.verificationExpires.getTime() < Date.now()) {
+    if (user.verificationExpires && new Date(user.verificationExpires).getTime() < Date.now()) {
       user.verificationCodeHash = undefined;
       user.verificationToken = undefined;
       user.verificationExpires = undefined;
       user.verificationAttempts = 0;
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { verificationCode: null, verificationToken: null, verificationExpires: null },
+      }).catch(() => {});
       throw new Error('Le code de vérification a expiré (durée : 10 minutes). Veuillez en demander un nouveau.');
     }
 
@@ -281,6 +311,10 @@ export class AuthService {
       user.verificationToken = undefined;
       user.verificationExpires = undefined;
       user.verificationAttempts = 0;
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { verificationCode: null, verificationToken: null, verificationExpires: null },
+      }).catch(() => {});
       throw new Error('Nombre maximal de tentatives atteint (5/5). Le code a été invalidé par sécurité. Veuillez en demander un nouveau.');
     }
 
@@ -298,28 +332,69 @@ export class AuthService {
         user.verificationToken = undefined;
         user.verificationExpires = undefined;
         user.verificationAttempts = 0;
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { verificationCode: null, verificationToken: null, verificationExpires: null },
+        }).catch(() => {});
         throw new Error('Code de vérification incorrect. Nombre maximal de tentatives atteint (5/5), le code a été invalidé.');
       }
       throw new Error(`Code de vérification incorrect. (${remaining} tentative${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''})`);
     }
 
-    // Code valide : marquer l'email comme vérifié et INVALIDER IMMÉDIATEMENT le code
+    // Code valide : marquer l'email comme vérifié en mémoire ET DANS SUPABASE
     user.isEmailVerified = true;
     user.verificationCodeHash = undefined;
     user.verificationToken = undefined;
     user.verificationExpires = undefined;
     user.verificationAttempts = 0;
 
+    // PERSISTANCE OBLIGATOIRE DANS LA BASE SUPABASE
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        isEmailVerified: true,
+        verificationCode: null,
+        verificationToken: null,
+        verificationExpires: null,
+      },
+    }).catch(() => {});
+
+    console.log(`[AuthService] ✓ Email confirmé et persisté dans Supabase pour ${user.email} (ID: ${user.id})`);
+
     const payload = this.toPayload(user);
     return { user: payload, token: this.generateToken(payload) };
   }
 
   public async verifyEmailToken(token: string): Promise<{ user: UserPayload; token: string }> {
+    const trimmed = token.trim();
+    // 1. Rechercher d'abord dans Supabase
+    let dbUser = await prisma.user.findFirst({
+      where: { verificationToken: trimmed },
+      include: { wallet: true },
+    }).catch(() => null);
+
     let foundUser: UserRecord | undefined;
-    for (const u of this.users.values()) {
-      if (u.verificationToken === token.trim()) {
-        foundUser = u;
-        break;
+    if (dbUser) {
+      foundUser = {
+        id: dbUser.id,
+        username: dbUser.username,
+        email: dbUser.email,
+        passwordHash: dbUser.passwordHash,
+        role: dbUser.role as Role,
+        currency: dbUser.currency,
+        isEmailVerified: dbUser.isEmailVerified,
+        verificationCodeHash: dbUser.verificationCode || undefined,
+        verificationToken: dbUser.verificationToken || undefined,
+        verificationExpires: dbUser.verificationExpires || undefined,
+        isSuspended: dbUser.isSuspended,
+        createdAt: dbUser.createdAt,
+      };
+    } else {
+      for (const u of this.users.values()) {
+        if (u.verificationToken === trimmed) {
+          foundUser = u;
+          break;
+        }
       }
     }
 
@@ -327,29 +402,45 @@ export class AuthService {
       throw new Error('Lien de vérification invalide ou déjà utilisé.');
     }
 
-    if (foundUser.verificationExpires && foundUser.verificationExpires.getTime() < Date.now()) {
+    if (foundUser.verificationExpires && new Date(foundUser.verificationExpires).getTime() < Date.now()) {
       foundUser.verificationCodeHash = undefined;
       foundUser.verificationToken = undefined;
       foundUser.verificationExpires = undefined;
       foundUser.verificationAttempts = 0;
+      await prisma.user.update({
+        where: { id: foundUser.id },
+        data: { verificationCode: null, verificationToken: null, verificationExpires: null },
+      }).catch(() => {});
       throw new Error('Ce lien de vérification a expiré.');
     }
 
-    // Invalider immédiatement le code et marquer vérifié
+    // Invalider immédiatement le code et marquer vérifié dans Supabase ET en mémoire
     foundUser.isEmailVerified = true;
     foundUser.verificationCodeHash = undefined;
     foundUser.verificationToken = undefined;
     foundUser.verificationExpires = undefined;
     foundUser.verificationAttempts = 0;
 
+    await prisma.user.update({
+      where: { id: foundUser.id },
+      data: {
+        isEmailVerified: true,
+        verificationCode: null,
+        verificationToken: null,
+        verificationExpires: null,
+      },
+    }).catch(() => {});
+
+    this.users.set(foundUser.id, foundUser);
+    this.usersByEmail.set(foundUser.email.toLowerCase(), foundUser.id);
+    this.usersByUsername.set(foundUser.username.toLowerCase(), foundUser.id);
+
     const payload = this.toPayload(foundUser);
     return { user: payload, token: this.generateToken(payload) };
   }
 
   public async resendVerification(emailOrUserId: string): Promise<{ success: boolean; message: string }> {
-    const key = emailOrUserId.toLowerCase().trim();
-    const userId = this.usersByEmail.get(key) || emailOrUserId;
-    const user = this.users.get(userId);
+    const user = await this.findUserRecord(emailOrUserId);
 
     if (!user) {
       throw new Error('Utilisateur introuvable.');
@@ -379,11 +470,22 @@ export class AuthService {
       throw new Error(emailResult.error || "Impossible d'envoyer le code de vérification. Veuillez réessayer dans quelques instants.");
     }
 
-    // Le fournisseur a accepté l'envoi : on enregistre le nouveau code et réinitialise les tentatives
+    // Le fournisseur a accepté l'envoi : on enregistre le nouveau code en mémoire ET DANS SUPABASE
     user.verificationCodeHash = verificationCodeHash;
     user.verificationToken = verificationToken;
     user.verificationExpires = verificationExpires;
     user.verificationAttempts = 0;
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        verificationCode: verificationCodeHash,
+        verificationToken,
+        verificationExpires,
+      },
+    });
+
+    console.log(`[AuthService] Nouveau code envoyé et persisté dans Supabase pour ${user.email}`);
 
     return { success: true, message: 'Un nouveau code de sécurité vous a été envoyé par email !' };
   }
@@ -393,13 +495,26 @@ export class AuthService {
    */
   public _setVerificationCodeForTest(userIdOrEmail: string, rawCode: string, expiresMsFromNow = 10 * 60 * 1000) {
     const key = userIdOrEmail.toLowerCase().trim();
-    const userId = this.usersByEmail.get(key) || userIdOrEmail;
+    const userId = this.usersByEmail.get(key) || this.usersByUsername.get(key) || userIdOrEmail;
     const user = this.users.get(userId);
+    const hash = crypto.createHash('sha256').update(rawCode.trim()).digest('hex');
+    const expires = new Date(Date.now() + expiresMsFromNow);
     if (user) {
-      user.verificationCodeHash = crypto.createHash('sha256').update(rawCode.trim()).digest('hex');
-      user.verificationExpires = new Date(Date.now() + expiresMsFromNow);
+      user.verificationCodeHash = hash;
+      user.verificationExpires = expires;
       user.verificationAttempts = 0;
     }
+    // Synchronisation en tâche de fond dans Supabase
+    prisma.user.findFirst({
+      where: { OR: [{ id: userIdOrEmail }, { email: key }, { username: key }] }
+    }).then((dbUser) => {
+      if (dbUser) {
+        return prisma.user.update({
+          where: { id: dbUser.id },
+          data: { verificationCode: hash, verificationExpires: expires },
+        });
+      }
+    }).catch(() => {});
   }
 
   public toPayload(user: UserRecord): UserPayload {
@@ -431,9 +546,6 @@ export class AuthService {
   }
 
   public async getUserByIdAsync(userId: string): Promise<UserRecord | null> {
-    const cached = this.users.get(userId);
-    if (cached) return cached;
-
     try {
       const dbUser = await prisma.user.findUnique({
         where: { id: userId },
@@ -462,8 +574,10 @@ export class AuthService {
         }
         return record;
       }
-    } catch {}
-    return null;
+    } catch (err: any) {
+      console.warn('[AuthService] Avertissement getUserByIdAsync Supabase:', err.message);
+    }
+    return this.users.get(userId) || null;
   }
 
   public getAllUsers(): UserRecord[] {

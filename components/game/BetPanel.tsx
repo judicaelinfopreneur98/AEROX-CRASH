@@ -17,6 +17,7 @@ import {
   ArrowUpRight,
   TrendingDown,
   LogIn,
+  Loader2,
 } from 'lucide-react';
 
 interface BetPanelProps {
@@ -38,7 +39,7 @@ export function BetPanel({
   onBetPlaced,
   onOpenAuth,
 }: BetPanelProps) {
-  const { user, balance, currency, isEmailVerified, refreshBalance, updateBalanceLocally } = useAuth();
+  const { user, balance, currency, isEmailVerified, isLoading, refreshBalance, updateBalanceLocally } = useAuth();
 
   // Mode de gestion : 'manual' (Cash Out Manuel) ou 'auto' (Auto Cash-Out)
   const [betMode, setBetMode] = useState<'manual' | 'auto'>('manual');
@@ -509,6 +510,14 @@ export function BetPanel({
             >
               <XCircle className="w-5 h-5" />
             </button>
+          </div>
+
+        ) : isLoading ? (
+          
+          /* CHARGEMENT / VÉRIFICATION DE SESSION (ANTI-FLASH) */
+          <div className="w-full min-h-[52px] py-3.5 px-4 rounded-xl font-bold text-xs uppercase tracking-wider bg-card/60 border border-white/10 text-gray-400 flex items-center justify-center gap-2 animate-pulse">
+            <Loader2 className="w-4 h-4 animate-spin text-primary" />
+            <span>VÉRIFICATION DU COMPTE...</span>
           </div>
 
         ) : !user ? (

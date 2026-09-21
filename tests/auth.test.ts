@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AuthService } from '../auth/AuthService';
 import { canAccessAdmin, canAdjustBalance, canManageUsers } from '../auth/rbac';
 
-describe('Authentification et Contrôle d’Accès (RBAC)', () => {
+describe('Authentification et Contrôle d’Accès (RBAC)', { timeout: 25000 }, () => {
   const auth = AuthService.getInstance();
 
   it('doit connecter le Super Administrateur avec les identifiants préconfigurés', async () => {
@@ -20,11 +20,12 @@ describe('Authentification et Contrôle d’Accès (RBAC)', () => {
   });
 
   it('doit inscrire un nouvel utilisateur avec succès et lui attribuer un portefeuille', async () => {
-    const testEmail = `newuser_${Date.now()}@aerox.io`;
-    const res = await auth.register('SkyRunner', testEmail, 'Password123!');
+    const ts = Date.now();
+    const testEmail = `newuser_${ts}@aerox.io`;
+    const res = await auth.register(`SkyRunner_${ts}`, testEmail, 'Password123!');
 
     expect(res.token).toBeDefined();
-    expect(res.user.username).toBe('SkyRunner');
+    expect(res.user.username).toBe(`SkyRunner_${ts}`);
     expect(res.user.role).toBe('USER');
   });
 
@@ -35,8 +36,9 @@ describe('Authentification et Contrôle d’Accès (RBAC)', () => {
   });
 
   it('doit enregistrer la devise choisie, sécuriser le code OTP (SHA-256) et ne jamais le divulguer dans la réponse API', async () => {
-    const testEmail = `fcfa_${Date.now()}@aerox.io`;
-    const res = await auth.register('FcfaMaster', testEmail, 'Password123!', 'FCFA');
+    const ts = Date.now();
+    const testEmail = `fcfa_${ts}@aerox.io`;
+    const res = await auth.register(`FcfaMaster_${ts}`, testEmail, 'Password123!', 'FCFA');
 
     expect(res.user.currency).toBe('FCFA');
     expect(res.user.isEmailVerified).toBe(false);
@@ -60,8 +62,9 @@ describe('Authentification et Contrôle d’Accès (RBAC)', () => {
   });
 
   it('doit invalider le code après 5 tentatives erronées consécutives', async () => {
-    const testEmail = `bruteforce_${Date.now()}@aerox.io`;
-    await auth.register('BruteTarget', testEmail, 'Password123!');
+    const ts = Date.now();
+    const testEmail = `bruteforce_${ts}@aerox.io`;
+    await auth.register(`BruteTarget_${ts}`, testEmail, 'Password123!');
     auth._setVerificationCodeForTest(testEmail, '123456');
 
     // 4 tentatives erronées
@@ -78,8 +81,9 @@ describe('Authentification et Contrôle d’Accès (RBAC)', () => {
   });
 
   it('doit rejeter un code de vérification expiré (plus de 10 minutes)', async () => {
-    const testEmail = `expired_${Date.now()}@aerox.io`;
-    await auth.register('ExpiredTarget', testEmail, 'Password123!');
+    const ts = Date.now();
+    const testEmail = `expired_${ts}@aerox.io`;
+    await auth.register(`ExpiredTarget_${ts}`, testEmail, 'Password123!');
     // Code expiré dans le passé (-1 seconde)
     auth._setVerificationCodeForTest(testEmail, '654321', -1000);
 

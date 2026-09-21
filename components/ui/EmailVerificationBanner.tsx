@@ -6,9 +6,9 @@ import { useAuth } from '@/components/providers/AuthProvider';
 import { AlertTriangle, ArrowRight } from 'lucide-react';
 
 export function EmailVerificationBanner() {
-  const { user, isEmailVerified } = useAuth();
+  const { user, isEmailVerified, isLoading } = useAuth();
 
-  if (!user || isEmailVerified) {
+  if (isLoading || !user || isEmailVerified) {
     return null;
   }
 
