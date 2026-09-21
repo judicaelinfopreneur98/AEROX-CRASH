@@ -23,7 +23,7 @@ interface AuthContextType {
   isEmailVerified: boolean;
   isLoading: boolean;
   login: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
-  register: (username: string, email: string, pass: string, currency?: string) => Promise<{ success: boolean; error?: string; verificationCode?: string }>;
+  register: (username: string, email: string, pass: string, currency?: string) => Promise<{ success: boolean; error?: string }>;
   verifyEmail: (code: string) => Promise<{ success: boolean; error?: string }>;
   resendVerification: () => Promise<{ success: boolean; message?: string; error?: string }>;
   logout: () => void;
@@ -146,7 +146,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem('aerox_jwt', data.token);
       socketClient.authenticate(data.token);
       await fetchUserData(data.token);
-      return { success: true, verificationCode: data.verificationCode };
+      return { success: true };
     } catch {
       return { success: false, error: 'Connexion impossible au serveur.' };
     }

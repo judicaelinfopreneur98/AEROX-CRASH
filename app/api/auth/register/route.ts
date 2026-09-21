@@ -22,7 +22,15 @@ export async function POST(request: Request) {
       validated.data.currency
     );
 
-    return NextResponse.json(result, { status: 201 });
+    return NextResponse.json(
+      {
+        success: true,
+        message: 'Compte créé avec succès. Veuillez vérifier votre adresse email.',
+        user: result.user,
+        token: result.token,
+      },
+      { status: 201 }
+    );
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Erreur serveur.' }, { status: 400 });
   }

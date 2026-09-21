@@ -40,11 +40,8 @@ export interface SendVerificationEmailParams {
 export async function sendVerificationEmail({ to, username, code, token }: SendVerificationEmailParams): Promise<{ success: boolean; messageId?: string; error?: string }> {
   const directLink = token ? `${appUrl}/auth/verify-email?token=${token}&email=${encodeURIComponent(to)}` : `${appUrl}/auth/verify-email?email=${encodeURIComponent(to)}`;
 
-  // Log de sécurité immédiat pour ne jamais bloquer l'administrateur ou les tests
-  console.log('\n======================================================');
-  console.log(`⚡ [AEROX EMAIL] CODE DE CONFIRMATION POUR ${to} : ${code}`);
-  console.log(`🔗 [AEROX EMAIL] LIEN DIRECT : ${directLink}`);
-  console.log('======================================================\n');
+  // Log opérationnel sécurisé sans divulgation du code OTP
+  console.log(`[EmailService] Envoi de l'email de vérification à destination de : ${to}`);
 
   try {
 
@@ -90,7 +87,7 @@ export async function sendVerificationEmail({ to, username, code, token }: SendV
                   ${code}
                 </div>
                 <p style="margin: 8px 0 0 0; font-size: 11px; color: #64748b;">
-                  Ce code expire dans 60 minutes.
+                  Ce code expire dans 10 minutes.
                 </p>
               </div>
 
@@ -125,7 +122,7 @@ export async function sendVerificationEmail({ to, username, code, token }: SendV
       from,
       to,
       subject: `⚡ Code de vérification AEROX : ${code}`,
-      text: `Bonjour ${username},\n\nVotre code de vérification AEROX est : ${code}\n\nOu cliquez sur ce lien pour vérifier directement : ${directLink}\n\nCe code expire dans 60 minutes.`,
+      text: `Bonjour ${username},\n\nVotre code de vérification AEROX est : ${code}\n\nOu cliquez sur ce lien pour vérifier directement : ${directLink}\n\nCe code expire dans 10 minutes.`,
       html: htmlContent,
     });
 

@@ -16,9 +16,10 @@ export interface UserRecord {
   role: Role;
   currency: string;
   isEmailVerified: boolean;
-  verificationCode?: string;
+  verificationCodeHash?: string;
   verificationToken?: string;
   verificationExpires?: Date;
+  verificationAttempts?: number;
   isSuspended: boolean;
   createdAt: Date;
 }
@@ -87,7 +88,7 @@ export class AuthService {
     email: string,
     password: string,
     currency: string = 'EUR'
-  ): Promise<{ user: UserPayload; token: string; verificationCode?: string }> {
+  ): Promise<{ user: UserPayload; token: string }> {
     const emailKey = email.toLowerCase().trim();
     const usernameKey = username.toLowerCase().trim();
 
@@ -103,10 +104,13 @@ export class AuthService {
     const passwordHash = await bcrypt.hash(password, salt);
     const id = `usr_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
-    // Code de vérification 6 chiffres et token direct
+    // Code de vérification aléatoire 6 chiffres (100000 à 999999) généré côté serveur
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    // Stockage uniquement sous forme de hash SHA-256 (jamais en clair côté serveur ou client)
+    const verificationCodeHash = crypto.createHash('sha256').update(verificationCode).digest('hex');
     const verificationToken = crypto.randomBytes(24).toString('hex');
-    const verificationExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 heure
+    // Expiration stricte de 10 minutes
+    const verificationExpires = new Date(Date.now() + 10 * 60 * 1000);
 
     const validCurrency = ['FCFA', 'EUR', 'USD'].includes(currency) ? currency : 'EUR';
 
@@ -118,9 +122,10 @@ export class AuthService {
       role: 'USER',
       currency: validCurrency,
       isEmailVerified: false,
-      verificationCode,
+      verificationCodeHash,
       verificationToken,
       verificationExpires,
+      verificationAttempts: 0,
       isSuspended: false,
       createdAt: new Date(),
     };
@@ -133,7 +138,7 @@ export class AuthService {
     const initialBalance = 1000.0;
     WalletEngine.getInstance().getOrCreateWallet(id, initialBalance, validCurrency);
 
-    // Envoi du mail de vérification
+    // Envoi du code exclusivement par email à la boîte de l'utilisateur
     sendVerificationEmail({
       to: emailKey,
       username,
@@ -145,7 +150,8 @@ export class AuthService {
 
     const payload = this.toPayload(newUser);
     const token = this.generateToken(payload);
-    return { user: payload, token, verificationCode };
+    // Le code à 6 chiffres n'est JAMAIS renvoyé dans la réponse API
+    return { user: payload, token };
   }
 
   public async login(email: string, password: string): Promise<AuthTokens> {
@@ -195,18 +201,50 @@ export class AuthService {
       return { user: payload, token: this.generateToken(payload) };
     }
 
-    if (!user.verificationCode || user.verificationCode !== code.trim()) {
-      throw new Error('Code de vérification invalide.');
-    }
-
+    // Vérifier l'expiration (10 minutes max)
     if (user.verificationExpires && user.verificationExpires.getTime() < Date.now()) {
-      throw new Error('Le code de vérification a expiré. Veuillez en demander un nouveau.');
+      user.verificationCodeHash = undefined;
+      user.verificationToken = undefined;
+      user.verificationExpires = undefined;
+      user.verificationAttempts = 0;
+      throw new Error('Le code de vérification a expiré (durée : 10 minutes). Veuillez en demander un nouveau.');
     }
 
+    // Vérifier le nombre d'essais incorrects (max 5)
+    const attempts = user.verificationAttempts || 0;
+    if (attempts >= 5) {
+      user.verificationCodeHash = undefined;
+      user.verificationToken = undefined;
+      user.verificationExpires = undefined;
+      user.verificationAttempts = 0;
+      throw new Error('Nombre maximal de tentatives atteint (5/5). Le code a été invalidé par sécurité. Veuillez en demander un nouveau.');
+    }
+
+    if (!user.verificationCodeHash) {
+      throw new Error('Aucun code de vérification actif. Veuillez demander un nouveau code.');
+    }
+
+    // Comparer le hash SHA-256 du code saisi
+    const inputHash = crypto.createHash('sha256').update(code.trim()).digest('hex');
+    if (user.verificationCodeHash !== inputHash) {
+      user.verificationAttempts = attempts + 1;
+      const remaining = 5 - user.verificationAttempts;
+      if (remaining <= 0) {
+        user.verificationCodeHash = undefined;
+        user.verificationToken = undefined;
+        user.verificationExpires = undefined;
+        user.verificationAttempts = 0;
+        throw new Error('Code de vérification incorrect. Nombre maximal de tentatives atteint (5/5), le code a été invalidé.');
+      }
+      throw new Error(`Code de vérification incorrect. (${remaining} tentative${remaining > 1 ? 's' : ''} restante${remaining > 1 ? 's' : ''})`);
+    }
+
+    // Code valide : marquer l'email comme vérifié et INVALIDER IMMÉDIATEMENT le code
     user.isEmailVerified = true;
-    user.verificationCode = undefined;
+    user.verificationCodeHash = undefined;
     user.verificationToken = undefined;
     user.verificationExpires = undefined;
+    user.verificationAttempts = 0;
 
     const payload = this.toPayload(user);
     return { user: payload, token: this.generateToken(payload) };
@@ -226,13 +264,19 @@ export class AuthService {
     }
 
     if (foundUser.verificationExpires && foundUser.verificationExpires.getTime() < Date.now()) {
+      foundUser.verificationCodeHash = undefined;
+      foundUser.verificationToken = undefined;
+      foundUser.verificationExpires = undefined;
+      foundUser.verificationAttempts = 0;
       throw new Error('Ce lien de vérification a expiré.');
     }
 
+    // Invalider immédiatement le code et marquer vérifié
     foundUser.isEmailVerified = true;
-    foundUser.verificationCode = undefined;
+    foundUser.verificationCodeHash = undefined;
     foundUser.verificationToken = undefined;
     foundUser.verificationExpires = undefined;
+    foundUser.verificationAttempts = 0;
 
     const payload = this.toPayload(foundUser);
     return { user: payload, token: this.generateToken(payload) };
@@ -251,13 +295,17 @@ export class AuthService {
       return { success: true, message: 'Votre compte est déjà vérifié.' };
     }
 
+    // Invalider immédiatement l'ancien code et générer un nouveau code 6 chiffres
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const verificationCodeHash = crypto.createHash('sha256').update(verificationCode).digest('hex');
     const verificationToken = crypto.randomBytes(24).toString('hex');
-    const verificationExpires = new Date(Date.now() + 60 * 60 * 1000);
+    // Expiration stricte de 10 minutes
+    const verificationExpires = new Date(Date.now() + 10 * 60 * 1000);
 
-    user.verificationCode = verificationCode;
+    user.verificationCodeHash = verificationCodeHash;
     user.verificationToken = verificationToken;
     user.verificationExpires = verificationExpires;
+    user.verificationAttempts = 0;
 
     await sendVerificationEmail({
       to: user.email,
@@ -266,7 +314,21 @@ export class AuthService {
       token: verificationToken,
     });
 
-    return { success: true, message: 'Un nouveau code vous a été envoyé par email.' };
+    return { success: true, message: 'Un nouveau code de sécurité vous a été envoyé par email.' };
+  }
+
+  /**
+   * Méthode interne réservée aux suites de tests automatisés (injecte un hash de test)
+   */
+  public _setVerificationCodeForTest(userIdOrEmail: string, rawCode: string, expiresMsFromNow = 10 * 60 * 1000) {
+    const key = userIdOrEmail.toLowerCase().trim();
+    const userId = this.usersByEmail.get(key) || userIdOrEmail;
+    const user = this.users.get(userId);
+    if (user) {
+      user.verificationCodeHash = crypto.createHash('sha256').update(rawCode.trim()).digest('hex');
+      user.verificationExpires = new Date(Date.now() + expiresMsFromNow);
+      user.verificationAttempts = 0;
+    }
   }
 
   public toPayload(user: UserRecord): UserPayload {

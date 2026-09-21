@@ -57,17 +57,6 @@ export async function GET(request: Request) {
     const token = url.searchParams.get('token');
     const email = url.searchParams.get('email');
 
-    if (url.searchParams.get('get_code') === 'true' && email) {
-      const auth = AuthService.getInstance();
-      const allUsers = auth.getAllUsers();
-      const user = allUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
-      return NextResponse.json({
-        email: user?.email,
-        code: user?.verificationCode,
-        isEmailVerified: user?.isEmailVerified
-      });
-    }
-
     if (!token) {
       return NextResponse.json({ error: 'Jeton de vérification manquant.' }, { status: 400 });
     }

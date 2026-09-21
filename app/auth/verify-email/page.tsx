@@ -4,7 +4,7 @@ import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/components/providers/AuthProvider';
 import { Navbar } from '@/components/layout/Navbar';
-import { ShieldCheck, Mail, ArrowRight, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ShieldCheck, ArrowRight, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
 
 function VerifyEmailContent() {
   const router = useRouter();
@@ -17,24 +17,10 @@ function VerifyEmailContent() {
   const [isLoading, setIsLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [countdown, setCountdown] = useState(0);
-  const [devCode, setDevCode] = useState<string | null>(null);
 
   const verifiedParam = searchParams.get('verified') === 'true';
   const errorParam = searchParams.get('error');
   const emailParam = searchParams.get('email') || user?.email || '';
-
-  useEffect(() => {
-    if (emailParam) {
-      fetch(`/api/auth/verify-email?get_code=true&email=${encodeURIComponent(emailParam)}`)
-        .then((r) => r.json())
-        .then((data) => {
-          if (data?.code) {
-            setDevCode(data.code);
-          }
-        })
-        .catch(() => {});
-    }
-  }, [emailParam]);
 
   useEffect(() => {
     if (verifiedParam) {
@@ -61,10 +47,10 @@ function VerifyEmailContent() {
     try {
       const res = await verifyEmail(code.trim());
       if (res.success) {
-        setSuccessMsg('Email vérifié avec succès ! Redirection en cours...');
+        setSuccessMsg('Email vérifié avec succès ! Redirection vers l\'arène...');
         setTimeout(() => {
           router.push('/');
-        }, 1500);
+        }, 1200);
       } else {
         setError(res.error || 'Code incorrect ou expiré.');
       }
@@ -82,7 +68,7 @@ function VerifyEmailContent() {
     try {
       const res = await resendVerification();
       if (res.success) {
-        setSuccessMsg('Un nouveau code vous a été expédié par email !');
+        setSuccessMsg('Un nouveau code de sécurité vous a été envoyé par email !');
         setCountdown(60);
       } else {
         setError(res.error || 'Échec de renvoi du code.');
@@ -98,7 +84,7 @@ function VerifyEmailContent() {
 
   return (
     <div className="flex-1 flex items-center justify-center p-3 sm:p-4">
-      <div className="bg-[#0E131F] border border-border w-full max-w-md rounded-2xl p-4 sm:p-8 shadow-2xl space-y-4 sm:space-y-6">
+      <div className="bg-[#0E131F] border border-border w-full max-w-md rounded-2xl p-5 sm:p-8 shadow-2xl space-y-4 sm:space-y-6">
         
         {/* EN-TÊTE */}
         <div className="text-center space-y-2">
@@ -112,14 +98,14 @@ function VerifyEmailContent() {
           <h1 className="text-2xl font-black text-white tracking-tight">
             {isAlreadyVerified ? 'Compte Vérifié !' : 'Vérification Email'}
           </h1>
-          <p className="text-xs text-gray-400 max-w-xs mx-auto">
+          <p className="text-xs text-gray-400 max-w-xs mx-auto leading-relaxed">
             {isAlreadyVerified
               ? 'Votre compte est pleinement actif. Vous avez accès à tous les dépôts, retraits et mises.'
-              : `Saisissez le code à 6 chiffres envoyé à ${emailParam || 'votre adresse email'}.`}
+              : `Saisissez le code à 6 chiffres envoyé à votre adresse email${emailParam ? ` (${emailParam})` : ''}.`}
           </p>
         </div>
 
-        {/* MESSAGES DE STATUT */}
+        {/* MESSAGES D'ERREUR OU SUCCÈS */}
         {errorParam && (
           <div className="p-3 rounded-xl bg-crash/10 border border-crash/30 text-crash text-xs flex items-center gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
@@ -144,7 +130,7 @@ function VerifyEmailContent() {
         {isAlreadyVerified ? (
           <button
             onClick={() => router.push('/')}
-            className="w-full py-3.5 rounded-xl bg-primary text-black font-black text-sm uppercase tracking-wider hover:bg-primary-hover active:scale-98 transition shadow-lg shadow-primary/20 flex items-center justify-center gap-2"
+            className="w-full min-h-[48px] py-3 rounded-xl bg-primary text-black font-black text-sm uppercase tracking-wider hover:bg-primary-hover active:scale-98 transition shadow-lg shadow-primary/20 flex items-center justify-center gap-2 cursor-pointer"
           >
             <span>Accéder à l'Arène de Jeu</span>
             <ArrowRight className="w-4 h-4" />
@@ -152,56 +138,47 @@ function VerifyEmailContent() {
         ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="text-xs font-semibold text-gray-300 uppercase block mb-1.5 font-mono text-center">
-                Code de sécurité (6 chiffres)
+              <label className="text-xs font-semibold text-gray-300 uppercase block mb-2 font-mono text-center tracking-wider">
+                CODE DE SÉCURITÉ (6 CHIFFRES)
               </label>
               <input
                 type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 maxLength={6}
                 autoFocus
                 value={code}
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-                placeholder="123456"
-                className="w-full bg-card border border-border focus:border-primary rounded-xl py-3 text-center text-2xl font-mono font-bold tracking-[0.5em] text-white focus:outline-none transition shadow-inner"
+                placeholder="• • • • • •"
+                className="w-full bg-card border border-border focus:border-primary rounded-xl py-3.5 text-center text-2xl font-mono font-bold tracking-[0.4em] text-white focus:outline-none transition shadow-inner"
               />
-              {devCode && (
-                <div className="mt-2 text-center">
-                  <button
-                    type="button"
-                    onClick={() => setCode(devCode)}
-                    className="px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/30 text-primary text-[11px] font-mono hover:bg-primary/20 transition cursor-pointer"
-                  >
-                    ⚡ Code actif détecté : <strong className="font-bold underline">{devCode}</strong> (Cliquer pour insérer)
-                  </button>
-                </div>
-              )}
             </div>
 
             <button
               type="submit"
               disabled={isLoading || code.length !== 6}
-              className="w-full py-3.5 rounded-xl bg-primary text-black font-black text-sm uppercase tracking-wider hover:bg-primary-hover active:scale-98 transition shadow-lg shadow-primary/20 disabled:opacity-50 flex items-center justify-center"
+              className="w-full min-h-[50px] py-3.5 rounded-xl bg-primary text-black font-black text-sm uppercase tracking-wider hover:bg-primary-hover active:scale-98 transition shadow-lg shadow-primary/20 disabled:opacity-40 flex items-center justify-center cursor-pointer"
             >
               {isLoading ? (
                 <div className="w-5 h-5 rounded-full border-2 border-black/30 border-t-black animate-spin" />
               ) : (
-                'Valider mon Compte'
+                'VALIDER MON COMPTE'
               )}
             </button>
 
-            {/* RENVOI CODE */}
+            {/* RENVOYER LE CODE */}
             <div className="text-center pt-2">
               <button
                 type="button"
                 onClick={handleResend}
                 disabled={countdown > 0 || resending}
-                className="text-xs text-gray-400 hover:text-primary transition inline-flex items-center gap-1.5 disabled:opacity-50"
+                className="text-xs text-gray-400 hover:text-primary transition inline-flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${resending ? 'animate-spin' : ''}`} />
                 <span>
                   {countdown > 0
                     ? `Renvoyer un nouveau code dans (${countdown}s)`
-                    : 'Vous n\'avez pas reçu le code ? Renvoyer'}
+                    : "Vous n'avez pas reçu le code ? Renvoyer"}
                 </span>
               </button>
             </div>
