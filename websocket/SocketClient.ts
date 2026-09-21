@@ -49,10 +49,18 @@ export class SocketClient {
 
     this.isExplicitlyClosed = false;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const tokenQuery = this.token ? `?token=${encodeURIComponent(this.token)}` : '';
-    const url = `${protocol}//${host}/ws${tokenQuery}`;
+    const envWs = process.env.NEXT_PUBLIC_WS_URL;
+    let url: string;
+    if (envWs && envWs.trim()) {
+      const cleanEnv = envWs.trim().replace(/\/+$/, '');
+      const separator = cleanEnv.includes('?') ? '&' : '?';
+      url = this.token ? `${cleanEnv}${separator}token=${encodeURIComponent(this.token)}` : cleanEnv;
+    } else {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      const tokenQuery = this.token ? `?token=${encodeURIComponent(this.token)}` : '';
+      url = `${protocol}//${host}/ws${tokenQuery}`;
+    }
 
     try {
       this.ws = new WebSocket(url);

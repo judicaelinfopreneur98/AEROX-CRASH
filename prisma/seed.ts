@@ -12,12 +12,14 @@ async function main() {
   // 1. Compte Super Administrateur
   const admin = await prisma.user.upsert({
     where: { email: 'admin@aerox.io' },
-    update: {},
+    update: { isEmailVerified: true },
     create: {
       username: 'AeroxAdmin',
       email: 'admin@aerox.io',
       passwordHash: adminPassword,
       role: 'SUPER_ADMIN',
+      currency: 'EUR',
+      isEmailVerified: true,
       wallet: {
         create: {
           balance: 100000.0,
@@ -33,18 +35,20 @@ async function main() {
     },
   });
 
-  // 2. Compte Joueur Démo
+  // 2. Compte Joueur Démo (EUR)
   const demoUser = await prisma.user.upsert({
     where: { email: 'demo@aerox.io' },
-    update: {},
+    update: { isEmailVerified: true },
     create: {
       username: 'PiloteDemo',
       email: 'demo@aerox.io',
       passwordHash: demoPassword,
       role: 'USER',
+      currency: 'EUR',
+      isEmailVerified: true,
       wallet: {
         create: {
-          balance: 1500.0,
+          balance: 1000.0,
           currency: 'EUR',
         },
       },
@@ -52,6 +56,32 @@ async function main() {
         create: {
           dailyDepositLimit: 500.0,
           maxBetLimit: 100.0,
+        },
+      },
+    },
+  });
+
+  // 3. Compte Joueur Démo (FCFA)
+  const demoFcfa = await prisma.user.upsert({
+    where: { email: 'demo_fcfa@aerox.io' },
+    update: { isEmailVerified: true },
+    create: {
+      username: 'PiloteFCFA',
+      email: 'demo_fcfa@aerox.io',
+      passwordHash: demoPassword,
+      role: 'USER',
+      currency: 'FCFA',
+      isEmailVerified: true,
+      wallet: {
+        create: {
+          balance: 1000.0,
+          currency: 'FCFA',
+        },
+      },
+      limits: {
+        create: {
+          dailyDepositLimit: 50000.0,
+          maxBetLimit: 5000.0,
         },
       },
     },
