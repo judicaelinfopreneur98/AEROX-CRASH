@@ -13,6 +13,8 @@ interface DualBetContainerProps {
   status: GameState;
   currentMultiplier: number;
   activeBets: ActivePlayerBet[];
+  currentRound?: any;
+  onBetPlaced?: () => void;
   onOpenAuth?: () => void;
 }
 
@@ -20,6 +22,8 @@ export function DualBetContainer({
   status,
   currentMultiplier,
   activeBets,
+  currentRound,
+  onBetPlaced,
   onOpenAuth,
 }: DualBetContainerProps) {
   const { user } = useAuth();
@@ -136,6 +140,8 @@ export function DualBetContainer({
             status={status}
             currentMultiplier={currentMultiplier}
             myActiveBet={myBet1}
+            currentRound={currentRound}
+            onBetPlaced={onBetPlaced}
             onOpenAuth={onOpenAuth}
           />
         </div>
@@ -146,6 +152,8 @@ export function DualBetContainer({
             status={status}
             currentMultiplier={currentMultiplier}
             myActiveBet={myBet2}
+            currentRound={currentRound}
+            onBetPlaced={onBetPlaced}
             onOpenAuth={onOpenAuth}
           />
         </div>

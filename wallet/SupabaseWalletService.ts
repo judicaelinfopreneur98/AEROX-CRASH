@@ -111,12 +111,13 @@ export class SupabaseWalletService {
    * Obtient ou crée la manche active dans Supabase pour associer les paris.
    */
   public async getOrCreateCurrentGame(tx: any) {
-    // Rechercher une partie en cours (WAITING, BETTING ou RUNNING)
+    // Rechercher une partie récente en cours de mise (créée il y a moins de 30 secondes)
     const existingGame = await tx.game.findFirst({
       where: {
-        status: { in: [GameStatus.WAITING, GameStatus.BETTING, GameStatus.RUNNING] },
+        status: { in: [GameStatus.WAITING, GameStatus.BETTING] },
+        createdAt: { gte: new Date(Date.now() - 30000) },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { roundNumber: 'desc' },
     });
 
     if (existingGame) {
@@ -140,6 +141,7 @@ export class SupabaseWalletService {
         nonce: roundNumber,
         crashPoint,
         status: GameStatus.BETTING,
+        createdAt: new Date(),
       },
     });
   }
@@ -229,10 +231,14 @@ export class SupabaseWalletService {
         }
       }
 
-      // 3. Vérifier ou obtenir la manche
+      // 3. Vérifier ou obtenir la manche active de mise
       let activeGame: any;
       if (gameId) {
         activeGame = await tx.game.findUnique({ where: { id: gameId } });
+        // Si la manche est déjà crashée, ne pas y attacher le pari
+        if (activeGame && activeGame.status === GameStatus.CRASHED) {
+          activeGame = null;
+        }
       }
       if (!activeGame) {
         activeGame = await this.getOrCreateCurrentGame(tx);
@@ -278,6 +284,25 @@ export class SupabaseWalletService {
           }),
         },
       });
+
+      // 7. Calcul des statistiques en direct pour diagnostic
+      const roundBets = await tx.bet.findMany({
+        where: { gameId: activeGame.id },
+        select: { amount: true },
+      });
+      const playersCount = roundBets.length;
+      const totalVolume = Number(roundBets.reduce((acc: number, b: any) => acc + b.amount, 0).toFixed(2));
+
+      // Logs de diagnostic (conformes Section 12 sans secrets)
+      console.log(`[BET] user_id: ${userId}`);
+      console.log(`[BET] round_id: ${activeGame.id}`);
+      console.log(`[BET] amount: ${amount}`);
+      console.log(`[BET] database insert: OK (bet_id: ${bet.id})`);
+      console.log(`[BET] wallet update: OK (new_balance: ${newBalance})`);
+      console.log(`[BET] active bet: ${bet.id}`);
+      console.log(`[BET] current round: #${activeGame.roundNumber}`);
+      console.log(`[BET] players count: ${playersCount}`);
+      console.log(`[BET] total volume: ${totalVolume}`);
 
       return {
         bet: {

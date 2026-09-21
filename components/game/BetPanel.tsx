@@ -24,6 +24,8 @@ interface BetPanelProps {
   status: GameState;
   currentMultiplier: number;
   myActiveBet: ActivePlayerBet | null;
+  currentRound?: any;
+  onBetPlaced?: () => void;
   onOpenAuth?: (mode: 'login' | 'register') => void;
 }
 
@@ -32,6 +34,8 @@ export function BetPanel({
   status,
   currentMultiplier,
   myActiveBet,
+  currentRound,
+  onBetPlaced,
   onOpenAuth,
 }: BetPanelProps) {
   const { user, balance, currency, isEmailVerified, refreshBalance, updateBalanceLocally } = useAuth();
@@ -45,11 +49,13 @@ export function BetPanel({
   const [autoBetEnabled, setAutoBetEnabled] = useState<boolean>(false);
   const [isQueuedForNextRound, setIsQueuedForNextRound] = useState<boolean>(false);
 
-  // Pari local actif (synchronisé avec myActiveBet ou optimiste)
+  // Pari local actif (synchronisé avec myActiveBet ou réponse directe API)
   const [localBet, setLocalBet] = useState<ActivePlayerBet | null>(myActiveBet);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isCashoutSubmitting, setIsCashoutSubmitting] = useState<boolean>(false);
+
+  const effectiveBet = localBet || myActiveBet;
 
   const quickAmounts = isFcfa ? [50, 100, 200, 500, 1000, 2000] : [1, 2, 5, 10, 25, 50];
 
@@ -61,43 +67,45 @@ export function BetPanel({
     }
   }, [currency]);
 
-  // Synchronisation avec les mises serveur
+  // Synchronisation avec les mises serveur : ne jamais écraser un pari ACTIVE
   useEffect(() => {
     if (myActiveBet) {
       setLocalBet(myActiveBet);
     } else if (status === 'WAITING' || status === 'RESULT') {
-      if (status === 'WAITING') {
+      if (localBet && (localBet.status === 'CASHED_OUT' || localBet.status === 'LOST')) {
         setLocalBet(null);
       }
     }
-  }, [myActiveBet, status]);
+  }, [myActiveBet, status, localBet]);
 
-  // Si la manche s'écrase alors que le pari était encore actif : marquage immédiat en PERDU
+  // Si la manche s'écrase alors que le pari était encore actif : marquage en PERDU
   useEffect(() => {
-    if ((status === 'CRASHED' || status === 'RESULT') && localBet && localBet.status === 'ACTIVE') {
+    if ((status === 'CRASHED' || status === 'RESULT') && effectiveBet && effectiveBet.status === 'ACTIVE') {
       setLocalBet({
-        ...localBet,
+        ...effectiveBet,
         status: 'LOST',
-        profit: -localBet.amount,
+        profit: -effectiveBet.amount,
       });
       refreshBalance();
     }
-  }, [status, localBet, refreshBalance]);
+  }, [status, effectiveBet, refreshBalance]);
 
   // Gestion de la file d'attente pour la prochaine manche
   useEffect(() => {
-    if (status === 'BETTING' && isQueuedForNextRound && !localBet && !isSubmitting) {
+    const canBetNow = status === 'BETTING' || status === 'WAITING';
+    if (canBetNow && isQueuedForNextRound && !effectiveBet && !isSubmitting) {
       handlePlaceBet();
       setIsQueuedForNextRound(false);
     }
-  }, [status, isQueuedForNextRound, localBet, isSubmitting]);
+  }, [status, isQueuedForNextRound, effectiveBet, isSubmitting]);
 
   // Auto-Bet
   useEffect(() => {
-    if (status === 'BETTING' && autoBetEnabled && !localBet && !isQueuedForNextRound && !isSubmitting && user) {
+    const canBetNow = status === 'BETTING' || status === 'WAITING';
+    if (canBetNow && autoBetEnabled && !effectiveBet && !isQueuedForNextRound && !isSubmitting && user) {
       handlePlaceBet();
     }
-  }, [status, autoBetEnabled, localBet, isQueuedForNextRound, isSubmitting, user]);
+  }, [status, autoBetEnabled, effectiveBet, isQueuedForNextRound, isSubmitting, user]);
 
   const handleAmountChange = (val: number) => {
     const minVal = isFcfa ? 100 : 0.1;
@@ -144,7 +152,8 @@ export function BetPanel({
     // Protection anti double-clic
     if (isSubmitting) return;
 
-    if (status !== 'BETTING') {
+    const canBetNow = status === 'BETTING' || status === 'WAITING';
+    if (!canBetNow) {
       setIsQueuedForNextRound(true);
       setErrorMessage(null);
       return;
@@ -169,6 +178,7 @@ export function BetPanel({
           amount,
           panelIndex,
           autoCashout: autoCo,
+          gameId: currentRound?.id,
           idempotencyKey: `bet_${user.id}_${panelIndex}_${Date.now()}`,
         }),
       });
@@ -188,6 +198,9 @@ export function BetPanel({
         updateBalanceLocally(data.newBalance);
       }
       await refreshBalance();
+      if (onBetPlaced) {
+        onBetPlaced();
+      }
     } catch (err: any) {
       setErrorMessage('Erreur réseau lors du placement du pari.');
       await refreshBalance();
@@ -206,14 +219,15 @@ export function BetPanel({
   // ACTION : CASH OUT MANUEL INSTANTANÉ (CRÉDIT SERVEUR DANS SUPABASE)
   // =========================================================================
   const handleCashOut = async () => {
-    if (!localBet || localBet.status !== 'ACTIVE' || isCashoutSubmitting) return;
+    const targetBet = effectiveBet;
+    if (!targetBet || targetBet.status !== 'ACTIVE' || isCashoutSubmitting) return;
 
     setIsCashoutSubmitting(true);
     soundManager.playCashoutSuccess();
 
     const mult = Number(currentMultiplier.toFixed(2));
     const token = localStorage.getItem('aerox_jwt');
-    const targetBetId = localBet.betId || (localBet as any).id;
+    const targetBetId = targetBet.betId || (targetBet as any).id;
 
     try {
       const res = await fetch(`/api/bets/${targetBetId}/cashout`, {
@@ -235,11 +249,11 @@ export function BetPanel({
         return;
       }
 
-      const winAmount = data.payout || Number((localBet.amount * mult).toFixed(2));
-      const profitAmount = data.profit || Number((winAmount - localBet.amount).toFixed(2));
+      const winAmount = data.payout || Number((targetBet.amount * mult).toFixed(2));
+      const profitAmount = data.profit || Number((winAmount - targetBet.amount).toFixed(2));
 
       const cashedBet: ActivePlayerBet = {
-        ...localBet,
+        ...targetBet,
         status: 'CASHED_OUT',
         cashoutMultiplier: mult,
         profit: profitAmount,
@@ -257,6 +271,9 @@ export function BetPanel({
       });
 
       await refreshBalance();
+      if (onBetPlaced) {
+        onBetPlaced();
+      }
     } catch (err: any) {
       setErrorMessage('Erreur réseau lors de l\'encaissement.');
       await refreshBalance();
@@ -265,12 +282,12 @@ export function BetPanel({
     }
   };
 
-  const liveWin = localBet && localBet.status === 'ACTIVE'
-    ? Number((localBet.amount * currentMultiplier).toFixed(2))
+  const liveWin = effectiveBet && effectiveBet.status === 'ACTIVE'
+    ? Number((effectiveBet.amount * currentMultiplier).toFixed(2))
     : Number((amount * currentMultiplier).toFixed(2));
 
-  const liveProfit = localBet && localBet.status === 'ACTIVE'
-    ? Number((liveWin - localBet.amount).toFixed(2))
+  const liveProfit = effectiveBet && effectiveBet.status === 'ACTIVE'
+    ? Number((liveWin - effectiveBet.amount).toFixed(2))
     : Number((liveWin - amount).toFixed(2));
 
   return (
@@ -423,7 +440,7 @@ export function BetPanel({
       <div className="mt-3 sm:mt-4">
         
         {/* PARI ACTIF EN VOL : BOUTON GÉANT CASH OUT MANUEL */}
-        {localBet && localBet.status === 'ACTIVE' && status === 'RUNNING' ? (
+        {effectiveBet && effectiveBet.status === 'ACTIVE' && status === 'RUNNING' ? (
           
           <button
             type="button"
@@ -443,19 +460,19 @@ export function BetPanel({
             </div>
           </button>
 
-        ) : localBet && localBet.status === 'ACTIVE' && status === 'BETTING' ? (
+        ) : effectiveBet && effectiveBet.status === 'ACTIVE' && (status === 'BETTING' || status === 'WAITING') ? (
           
           <div className="w-full min-h-[52px] py-3 px-3.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-between text-xs font-bold font-mono">
             <div className="flex items-center gap-1.5">
               <Check className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Mise {formatCurrency(localBet.amount, currency)} validée</span>
+              <span>Mise {formatCurrency(effectiveBet.amount, currency)} validée</span>
             </div>
             <span className="text-[10px] uppercase tracking-wider text-gray-400">
               Décollage imminent...
             </span>
           </div>
 
-        ) : localBet && localBet.status === 'CASHED_OUT' ? (
+        ) : effectiveBet && effectiveBet.status === 'CASHED_OUT' ? (
           
           <div className="w-full min-h-[52px] py-3 px-3.5 rounded-xl bg-emerald-500/20 border border-emerald-500/50 text-emerald-300 flex items-center justify-between shadow-lg shadow-emerald-500/20 text-xs font-mono font-black">
             <div className="flex items-center gap-1.5">
@@ -463,18 +480,18 @@ export function BetPanel({
               <span>CASH OUT RÉUSSI !</span>
             </div>
             <span className="text-white text-sm">
-              +{formatCurrency(localBet.profit || 0, currency)} ({localBet.cashoutMultiplier?.toFixed(2)}x)
+              +{formatCurrency(effectiveBet.profit || 0, currency)} ({effectiveBet.cashoutMultiplier?.toFixed(2)}x)
             </span>
           </div>
 
-        ) : localBet && localBet.status === 'LOST' ? (
+        ) : effectiveBet && effectiveBet.status === 'LOST' ? (
           
           <div className="w-full min-h-[52px] py-3 px-3.5 rounded-xl bg-crash/15 border border-crash/30 text-crash flex items-center justify-between text-xs font-mono font-bold">
             <div className="flex items-center gap-1.5">
               <TrendingDown className="w-4 h-4 text-crash shrink-0" />
               <span>Manche crashée</span>
             </div>
-            <span>Mise défalquée : -{formatCurrency(localBet.amount, currency)}</span>
+            <span>Mise défalquée : -{formatCurrency(effectiveBet.amount, currency)}</span>
           </div>
 
         ) : isQueuedForNextRound ? (
@@ -524,13 +541,13 @@ export function BetPanel({
             onClick={handlePlaceBet}
             disabled={isSubmitting}
             className={`w-full min-h-[52px] py-3.5 px-3 rounded-xl font-black text-sm uppercase tracking-wider transition-all duration-150 flex items-center justify-center gap-2 shadow-lg active:scale-98 disabled:opacity-60 cursor-pointer ${
-              status === 'BETTING'
+              status === 'BETTING' || status === 'WAITING'
                 ? 'bg-gradient-to-r from-primary via-cyan-400 to-primary text-black hover:brightness-110 shadow-primary/30'
                 : 'bg-card border border-primary/40 text-primary hover:bg-primary/10'
             }`}
           >
             <Zap className="w-4 h-4 shrink-0" />
-            {status === 'BETTING' ? (
+            {status === 'BETTING' || status === 'WAITING' ? (
               <span>PARIER {formatCurrency(amount, currency)}</span>
             ) : (
               <span className="text-xs sm:text-sm">PARIER PROCHAIN VOL ({formatCurrency(amount, currency)})</span>

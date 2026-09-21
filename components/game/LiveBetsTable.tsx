@@ -16,6 +16,7 @@ export function LiveBetsTable({ bets }: LiveBetsTableProps) {
   const [isCollapsedOnMobile, setIsCollapsedOnMobile] = useState<boolean>(false);
 
   const totalVolume = bets.reduce((acc, b) => acc + b.amount, 0);
+  const myBetsCount = user ? bets.filter((b) => b.userId === user.id).length : 0;
 
   const filteredBets = bets.filter((b) => {
     if (tab === 'my') {
@@ -40,7 +41,7 @@ export function LiveBetsTable({ bets }: LiveBetsTableProps) {
             <div className="flex items-center gap-1 text-gray-300">
               <Users className="w-3.5 h-3.5 text-primary" />
               <span className="font-bold text-white">{bets.length}</span>
-              <span className="text-gray-400">paris</span>
+              <span className="text-gray-400">{bets.length <= 1 ? 'pari' : 'paris'}</span>
             </div>
             <span className="text-border">|</span>
             <div className="text-gray-400 truncate max-w-[140px] xs:max-w-none">
@@ -79,7 +80,7 @@ export function LiveBetsTable({ bets }: LiveBetsTableProps) {
                 tab === 'my' ? 'bg-primary text-black font-bold' : 'text-gray-400 hover:text-white'
               }`}
             >
-              Mes Paris
+              Mes Paris ({myBetsCount})
             </button>
             <button
               type="button"

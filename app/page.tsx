@@ -40,37 +40,53 @@ export default function ArenaPage() {
     mode: 'login',
   });
 
+  // Synchronisation continue et en direct avec Supabase
+  const syncGameState = React.useCallback(async () => {
+    try {
+      const res = await fetch('/api/games/current', { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data?.round) {
+        setCurrentRound(data.round);
+        if (data.round.status) {
+          setStatus(data.round.status);
+        }
+        if (data.round.status === 'RUNNING' || data.round.status === 'CRASHED') {
+          if (typeof data.round.currentMultiplier === 'number') {
+            setMultiplier(data.round.currentMultiplier);
+          }
+        } else if (data.round.status === 'BETTING' || data.round.status === 'WAITING') {
+          setMultiplier(1.00);
+          if (typeof data.round.bettingTimeLeft === 'number') {
+            setBettingTimeLeft(data.round.bettingTimeLeft);
+          }
+        }
+      }
+      if (Array.isArray(data?.activeBets)) {
+        setActiveBets(data.activeBets);
+      }
+      if (Array.isArray(data?.recentHistory) && data.recentHistory.length > 0) {
+        setRecentHistory(data.recentHistory);
+      }
+    } catch {}
+  }, []);
+
   useEffect(() => {
     // Initialisation WebSocket & Musique de Fond
     const token = typeof window !== 'undefined' ? localStorage.getItem('aerox_jwt') : null;
     socketClient.connect(token);
     soundManager.initInteractionAutoPlay();
 
-    // Synchronisation HTTP immédiate pour affichage sans délai
-    fetch('/api/games/current')
-      .then((r) => r.json())
-      .then((data) => {
-        if (data?.round) {
-          setCurrentRound(data.round);
-          if (data.round.status) setStatus(data.round.status);
-          if (data.round.currentMultiplier) setMultiplier(data.round.currentMultiplier);
-          if (data.round.bettingTimeLeft) setBettingTimeLeft(data.round.bettingTimeLeft);
-        }
-        if (data?.recentHistory?.length) {
-          setRecentHistory(data.recentHistory);
-        }
-        if (data?.activeBets) {
-          setActiveBets(data.activeBets);
-        }
-      })
-      .catch(() => {});
+    // Synchronisation HTTP immédiate et périodique avec Supabase
+    syncGameState();
+    const pollInterval = setInterval(syncGameState, 1200);
 
     // 1. GAME CREATED / WAITING
     const unsubCreated = socketClient.on(WS_EVENTS.GAME_CREATED, (data: GameRoundInfo) => {
       setCurrentRound(data);
       setStatus('WAITING');
       setMultiplier(1.00);
-      setActiveBets([]);
+      syncGameState();
       soundManager.stopFlightSound();
       soundManager.updateBgmPhase('WAITING', 1.00);
       refreshBalance();
@@ -184,6 +200,7 @@ export default function ArenaPage() {
     });
 
     return () => {
+      clearInterval(pollInterval);
       unsubCreated();
       unsubBetting();
       unsubStarted();
@@ -195,7 +212,7 @@ export default function ArenaPage() {
       unsubHistory();
       unsubActive();
     };
-  }, [refreshBalance]);
+  }, [refreshBalance, syncGameState]);
 
   return (
     <div className="min-h-screen flex flex-col bg-[#080B10] text-gray-100">
@@ -247,6 +264,8 @@ export default function ArenaPage() {
             status={status}
             currentMultiplier={multiplier}
             activeBets={activeBets}
+            currentRound={currentRound}
+            onBetPlaced={syncGameState}
             onOpenAuth={() => setAuthModal({ open: true, mode: 'login' })}
           />
         </div>

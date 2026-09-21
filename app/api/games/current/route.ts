@@ -1,19 +1,19 @@
 import { NextResponse } from 'next/server';
-import { GameEngine } from '@/game-engine/GameEngine';
+import { supabaseGameService } from '@/game-engine/SupabaseGameService';
+
+export const dynamic = 'force-dynamic';
 
 export async function GET() {
-  const game = GameEngine.getInstance();
-  game.ensureStarted();
-  const info = game.getPublicRoundInfo();
-  const activeBets = game.getActiveBetsList();
-  const recentHistory = game.getRecentRounds();
-  const adminPreview = game.getAdminRoundPreview();
-
-  return NextResponse.json({
-    round: info,
-    activeBets,
-    recentHistory,
-    nextRound: adminPreview.nextRound,
-    serverTime: Date.now(),
-  });
+  try {
+    const gameState = await supabaseGameService.getLiveGameState();
+    return NextResponse.json(gameState, {
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+      },
+    });
+  } catch (error: any) {
+    console.error('[API /api/games/current] Erreur:', error);
+    return NextResponse.json({ error: error.message || 'Erreur serveur' }, { status: 500 });
+  }
 }
+
