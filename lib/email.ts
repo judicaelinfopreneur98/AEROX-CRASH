@@ -1,34 +1,10 @@
 import nodemailer from 'nodemailer';
 import dns from 'dns';
 
-// Force l'ordre de résolution IPv4 en priorité pour éviter les blocages ENETUNREACH sur les réseaux sans IPv6
+// Force l'ordre de résolution IPv4 en priorité pour éviter les blocages sur les réseaux sans IPv6
 try {
   dns.setDefaultResultOrder('ipv4first');
 } catch {}
-
-const host = process.env.SMTP_HOST || 'mail.bretonwebexpert.fr';
-const port = parseInt(process.env.SMTP_PORT || '465', 10);
-const secure = process.env.SMTP_SECURE === 'true' || port === 465;
-const user = process.env.SMTP_USER || 'info@bretonwebexpert.fr';
-const pass = process.env.SMTP_PASS || 'U#BM*O%=bw5LTwTw';
-const from = process.env.SMTP_FROM || '"AEROX CRASH" <info@bretonwebexpert.fr>';
-const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-
-export const transporter = nodemailer.createTransport({
-  host,
-  port,
-  secure,
-  connectionTimeout: 8000,
-  greetingTimeout: 8000,
-  socketTimeout: 10000,
-  auth: {
-    user,
-    pass,
-  },
-  tls: {
-    rejectUnauthorized: false,
-  },
-});
 
 export interface SendVerificationEmailParams {
   to: string;
@@ -37,16 +13,23 @@ export interface SendVerificationEmailParams {
   token?: string;
 }
 
-export async function sendVerificationEmail({ to, username, code, token }: SendVerificationEmailParams): Promise<{ success: boolean; messageId?: string; error?: string }> {
-  const directLink = token ? `${appUrl}/auth/verify-email?token=${token}&email=${encodeURIComponent(to)}` : `${appUrl}/auth/verify-email?email=${encodeURIComponent(to)}`;
+export interface SendEmailResult {
+  success: boolean;
+  messageId?: string;
+  provider?: string;
+  error?: string;
+}
 
-  // Log opérationnel sécurisé sans divulgation du code OTP
-  console.log(`[EmailService] Envoi de l'email de vérification à destination de : ${to}`);
-
-  try {
-
-    const htmlContent = `
-<!DOCTYPE html>
+function getVerificationHtml({
+  username,
+  code,
+  directLink,
+}: {
+  username: string;
+  code: string;
+  directLink: string;
+}): string {
+  return `<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
@@ -115,20 +98,174 @@ export async function sendVerificationEmail({ to, username, code, token }: SendV
     </tr>
   </table>
 </body>
-</html>
-    `;
+</html>`;
+}
 
-    const info = await transporter.sendMail({
+/**
+ * Envoi via l'API HTTP Resend (recommandé pour les runtimes serverless Vercel)
+ */
+async function sendWithResend(
+  apiKey: string,
+  to: string,
+  subject: string,
+  html: string,
+  text: string
+): Promise<SendEmailResult> {
+  const from = process.env.RESEND_FROM || process.env.SMTP_FROM || 'AEROX CRASH <onboarding@resend.dev>';
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
       from,
-      to,
-      subject: `⚡ Code de vérification AEROX : ${code}`,
-      text: `Bonjour ${username},\n\nVotre code de vérification AEROX est : ${code}\n\nOu cliquez sur ce lien pour vérifier directement : ${directLink}\n\nCe code expire dans 10 minutes.`,
-      html: htmlContent,
-    });
+      to: [to],
+      subject,
+      html,
+      text,
+    }),
+  });
+  const data = await res.json();
+  if (res.ok && data?.id) {
+    return { success: true, messageId: data.id, provider: 'Resend' };
+  }
+  return { success: false, error: data?.message || JSON.stringify(data), provider: 'Resend' };
+}
 
-    return { success: true, messageId: info.messageId };
+/**
+ * Envoi via l'API HTTP Brevo (Sendinblue)
+ */
+async function sendWithBrevo(
+  apiKey: string,
+  to: string,
+  username: string,
+  subject: string,
+  html: string,
+  text: string
+): Promise<SendEmailResult> {
+  const fromEmail = process.env.BREVO_FROM_EMAIL || process.env.SMTP_USER || 'info@bretonwebexpert.fr';
+  const fromName = process.env.BREVO_FROM_NAME || 'AEROX CRASH';
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'api-key': apiKey,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    },
+    body: JSON.stringify({
+      sender: { name: fromName, email: fromEmail },
+      to: [{ email: to, name: username }],
+      subject,
+      htmlContent: html,
+      textContent: text,
+    }),
+  });
+  const data = await res.json();
+  if (res.ok && data?.messageId) {
+    return { success: true, messageId: data.messageId, provider: 'Brevo' };
+  }
+  return { success: false, error: data?.message || JSON.stringify(data), provider: 'Brevo' };
+}
+
+/**
+ * Envoi standard via SMTP (Nodemailer)
+ */
+async function sendWithSmtp(
+  to: string,
+  subject: string,
+  html: string,
+  text: string
+): Promise<SendEmailResult> {
+  const host = process.env.SMTP_HOST || 'mail.bretonwebexpert.fr';
+  const port = parseInt(process.env.SMTP_PORT || '465', 10);
+  const secure = process.env.SMTP_SECURE === 'true' || port === 465;
+  const user = process.env.SMTP_USER || 'info@bretonwebexpert.fr';
+  const pass = process.env.SMTP_PASSWORD || process.env.SMTP_PASS || '';
+  const from = process.env.SMTP_FROM || `"AEROX CRASH" <${user}>`;
+
+  if (!pass) {
+    return {
+      success: false,
+      error: 'Mot de passe SMTP manquant (SMTP_PASSWORD ou SMTP_PASS non configuré).',
+      provider: 'SMTP',
+    };
+  }
+
+  const transporter = nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    connectionTimeout: 10000,
+    greetingTimeout: 8000,
+    socketTimeout: 15000,
+    auth: { user, pass },
+    tls: { rejectUnauthorized: false },
+  });
+
+  const info = await transporter.sendMail({
+    from,
+    to,
+    subject,
+    text,
+    html,
+  });
+
+  return { success: true, messageId: info.messageId, provider: 'SMTP' };
+}
+
+/**
+ * Point d'entrée principal pour l'expédition sécurisée de l'email de vérification
+ */
+export async function sendVerificationEmail({
+  to,
+  username,
+  code,
+  token,
+}: SendVerificationEmailParams): Promise<SendEmailResult> {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const directLink = token
+    ? `${appUrl}/auth/verify-email?token=${token}&email=${encodeURIComponent(to)}`
+    : `${appUrl}/auth/verify-email?email=${encodeURIComponent(to)}`;
+
+  const subject = `⚡ Code de vérification AEROX : ${code}`;
+  const text = `Bonjour ${username},\n\nVotre code de vérification AEROX est : ${code}\n\nOu cliquez sur ce lien pour vérifier directement : ${directLink}\n\nCe code expire dans 10 minutes.`;
+  const html = getVerificationHtml({ username, code, directLink });
+
+  // Identification du fournisseur
+  let provider = 'SMTP';
+  if (process.env.RESEND_API_KEY) provider = 'Resend';
+  else if (process.env.BREVO_API_KEY) provider = 'Brevo';
+
+  // ⚠️ LOGS SÉCURISÉS CONFORMES : Le code OTP n'est JAMAIS écrit dans les logs
+  console.log(`[EmailService] OTP generated: YES`);
+  console.log(`[EmailService] Recipient: ${to}`);
+  console.log(`[EmailService] Email provider: ${provider}`);
+  console.log(`[EmailService] Send request: STARTED`);
+
+  try {
+    let result: SendEmailResult;
+    if (process.env.RESEND_API_KEY) {
+      result = await sendWithResend(process.env.RESEND_API_KEY, to, subject, html, text);
+    } else if (process.env.BREVO_API_KEY) {
+      result = await sendWithBrevo(process.env.BREVO_API_KEY, to, username, subject, html, text);
+    } else {
+      result = await sendWithSmtp(to, subject, html, text);
+    }
+
+    if (result.success) {
+      console.log(`[EmailService] Send request: SUCCESS`);
+      console.log(`[EmailService] Provider message ID: ${result.messageId}`);
+    } else {
+      console.error(`[EmailService] Send request: FAILED`);
+      console.error(`[EmailService] Error: ${result.error}`);
+    }
+
+    return result;
   } catch (error: any) {
-    console.error('[EmailService] Échec de l\'envoi de l\'email :', error);
-    return { success: false, error: error.message || 'Erreur inconnue lors de l\'envoi de l\'email' };
+    const errorMsg = error.message || "Erreur inconnue lors de l'envoi de l'email";
+    console.error(`[EmailService] Send request: FAILED`);
+    console.error(`[EmailService] Error: ${errorMsg}`);
+    return { success: false, error: errorMsg, provider };
   }
 }

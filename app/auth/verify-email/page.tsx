@@ -65,16 +65,17 @@ function VerifyEmailContent() {
     if (countdown > 0 || resending) return;
     setResending(true);
     setError(null);
+    setSuccessMsg(null);
     try {
       const res = await resendVerification();
       if (res.success) {
         setSuccessMsg('Un nouveau code de sécurité vous a été envoyé par email !');
         setCountdown(60);
       } else {
-        setError(res.error || 'Échec de renvoi du code.');
+        setError(res.error || "Impossible d'envoyer le code de vérification. Veuillez réessayer dans quelques instants.");
       }
     } catch {
-      setError('Erreur lors de la tentative de renvoi.');
+      setError("Impossible d'envoyer le code de vérification. Veuillez réessayer dans quelques instants.");
     } finally {
       setResending(false);
     }

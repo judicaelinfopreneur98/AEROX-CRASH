@@ -138,15 +138,20 @@ export class AuthService {
     const initialBalance = 1000.0;
     WalletEngine.getInstance().getOrCreateWallet(id, initialBalance, validCurrency);
 
-    // Envoi du code exclusivement par email à la boîte de l'utilisateur
-    sendVerificationEmail({
-      to: emailKey,
-      username,
-      code: verificationCode,
-      token: verificationToken,
-    }).catch((err) => {
-      console.error('[AuthService] Erreur envoi email vérification:', err);
-    });
+    // Envoi du code exclusivement par email (await pour garantir l'exécution sur Serverless Vercel)
+    try {
+      const emailResult = await sendVerificationEmail({
+        to: emailKey,
+        username,
+        code: verificationCode,
+        token: verificationToken,
+      });
+      if (!emailResult.success) {
+        console.error(`[AuthService] Envoi OTP à l'inscription échoué pour ${emailKey}: ${emailResult.error}`);
+      }
+    } catch (err: any) {
+      console.error('[AuthService] Erreur inattendue lors de l\'envoi email vérification:', err.message || err);
+    }
 
     const payload = this.toPayload(newUser);
     const token = this.generateToken(payload);
@@ -295,26 +300,33 @@ export class AuthService {
       return { success: true, message: 'Votre compte est déjà vérifié.' };
     }
 
-    // Invalider immédiatement l'ancien code et générer un nouveau code 6 chiffres
+    // Génération du nouveau code de sécurité 6 chiffres
     const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
     const verificationCodeHash = crypto.createHash('sha256').update(verificationCode).digest('hex');
     const verificationToken = crypto.randomBytes(24).toString('hex');
     // Expiration stricte de 10 minutes
     const verificationExpires = new Date(Date.now() + 10 * 60 * 1000);
 
-    user.verificationCodeHash = verificationCodeHash;
-    user.verificationToken = verificationToken;
-    user.verificationExpires = verificationExpires;
-    user.verificationAttempts = 0;
-
-    await sendVerificationEmail({
+    // Envoi réel vers le fournisseur configuré (SMTP, Resend ou Brevo)
+    const emailResult = await sendVerificationEmail({
       to: user.email,
       username: user.username,
       code: verificationCode,
       token: verificationToken,
     });
 
-    return { success: true, message: 'Un nouveau code de sécurité vous a été envoyé par email.' };
+    if (!emailResult.success) {
+      console.error(`[AuthService] Échec renvoi code pour ${user.email}: ${emailResult.error}`);
+      throw new Error(emailResult.error || "Impossible d'envoyer le code de vérification. Veuillez réessayer dans quelques instants.");
+    }
+
+    // Le fournisseur a accepté l'envoi : on enregistre le nouveau code et réinitialise les tentatives
+    user.verificationCodeHash = verificationCodeHash;
+    user.verificationToken = verificationToken;
+    user.verificationExpires = verificationExpires;
+    user.verificationAttempts = 0;
+
+    return { success: true, message: 'Un nouveau code de sécurité vous a été envoyé par email !' };
   }
 
   /**

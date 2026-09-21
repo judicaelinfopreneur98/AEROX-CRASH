@@ -193,12 +193,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ email: user?.email }),
       });
       const data = await res.json();
-      if (!res.ok) {
-        return { success: false, error: data.error || 'Impossible de renvoyer le code.' };
+      if (!res.ok || data.success === false) {
+        return {
+          success: false,
+          error: data.error || "Impossible d'envoyer le code de vérification. Veuillez réessayer dans quelques instants.",
+        };
       }
       return { success: true, message: data.message };
     } catch {
-      return { success: false, error: 'Erreur lors de la demande de renvoi.' };
+      return {
+        success: false,
+        error: "Impossible d'envoyer le code de vérification. Veuillez réessayer dans quelques instants.",
+      };
     }
   };
 

@@ -39,7 +39,10 @@ export async function POST(request: Request) {
     return NextResponse.json(result);
   } catch (err: any) {
     return NextResponse.json(
-      { error: err.message || 'Erreur lors de l\'envoi du code de vérification.' },
+      {
+        success: false,
+        error: err.message || "Impossible d'envoyer le code de vérification. Veuillez réessayer dans quelques instants.",
+      },
       { status: 400 }
     );
   }
