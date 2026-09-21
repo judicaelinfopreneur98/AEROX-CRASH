@@ -32,3 +32,8 @@ yarn-error.log*
 # TypeScript cache
 *.tsbuildinfo
 next-env.d.ts
+
+# Temporary diagnostic scripts
+scripts/check_auth_users.ts
+scripts/inspect_db.ts
+scripts/test_current_game.ts
