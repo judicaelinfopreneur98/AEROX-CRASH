@@ -72,8 +72,18 @@ export class GameEngine extends EventEmitter {
     if (!g.__aerox_game_engine__) {
       g.__aerox_game_engine__ = GameEngine.instance || new GameEngine();
       GameEngine.instance = g.__aerox_game_engine__;
+      g.__aerox_game_engine__.ensureStarted();
     }
     return g.__aerox_game_engine__;
+  }
+
+  public ensureStarted() {
+    if (!this.isRunningLoop) {
+      this.start();
+    }
+    if (!this.currentRoundId) {
+      this.transitionToWaiting();
+    }
   }
 
   private seedInitialHistory() {

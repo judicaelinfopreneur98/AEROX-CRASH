@@ -46,6 +46,25 @@ export default function ArenaPage() {
     socketClient.connect(token);
     soundManager.initInteractionAutoPlay();
 
+    // Synchronisation HTTP immédiate pour affichage sans délai
+    fetch('/api/games/current')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.round) {
+          setCurrentRound(data.round);
+          if (data.round.status) setStatus(data.round.status);
+          if (data.round.currentMultiplier) setMultiplier(data.round.currentMultiplier);
+          if (data.round.bettingTimeLeft) setBettingTimeLeft(data.round.bettingTimeLeft);
+        }
+        if (data?.recentHistory?.length) {
+          setRecentHistory(data.recentHistory);
+        }
+        if (data?.activeBets) {
+          setActiveBets(data.activeBets);
+        }
+      })
+      .catch(() => {});
+
     // 1. GAME CREATED / WAITING
     const unsubCreated = socketClient.on(WS_EVENTS.GAME_CREATED, (data: GameRoundInfo) => {
       setCurrentRound(data);
